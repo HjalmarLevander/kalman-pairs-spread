@@ -1,0 +1,7 @@
+style_vault/
+.venv/
+__pycache__/
+*.pyc
+data/*.csv
+data/*.parquet
+.env
