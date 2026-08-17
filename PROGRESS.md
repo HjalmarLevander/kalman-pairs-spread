@@ -6,7 +6,7 @@ SPEC.md for full detail on each phase.
 
 - [x] Phase 0 — Ticker/pair selection (correlation + cointegration + beta-stability screen)
 - [x] Phase 1 — Kalman filter dynamic hedge ratio
-- [ ] Phase 2 — FFT denoising pipeline
+- [x] Phase 2 — FFT denoising pipeline
 - [ ] Phase 3a — Signal-quality sweep across percentile p
 - [ ] Phase 3b — Extreme-event sensitivity analysis
 - [ ] Phase 3c — Trading-performance sweep across percentile p
@@ -76,3 +76,21 @@ trading-performance sweep should treat (delta, obs_cov) as still-open, not locke
 by Phase 1's MLE alone — worth widening OBS_COV_GRID downward to confirm it's a
 genuine likelihood peak and not just hitting a boundary, and cross-checking against
 spread half-life/ADF stationarity rather than trusting log-likelihood in isolation.
+
+## 2026-08-17 — Phase 2 run
+
+Still direct implementation, no Robin/API. `src/phase2_fft_denoise.py` +
+`tests/test_phase2.py` (5/5 pass, including a causality test that confirms the
+denoised value at time t is bit-identical whether or not later observations exist
+yet -- a rolling *causal* short-time FFT, not one FFT over the whole series, since
+a whole-series FFT of a non-stationary signal both makes little economic sense and
+is itself a lookahead-adjacent leak).
+
+`src/phase2_run.py` is a quick preview (not the full Phase 3 sweep) applying
+p=50/70/90 to both Phase 1 spreads. Sanity check passed: variance_explained falls
+monotonically as p increases for both pairs (V/MA: 0.85→0.66→0.38, KO/PEP:
+0.86→0.66→0.36), i.e. the mechanism behaves as designed before building the larger
+Phase 3 sweep + trading-performance comparison on top of it.
+
+SSA (Phase 2's flagged robustness alternative) not yet implemented — still open,
+noted in SPEC.md as a later comparison, not required to unblock Phase 3.
