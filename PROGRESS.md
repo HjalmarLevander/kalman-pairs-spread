@@ -7,11 +7,11 @@ SPEC.md for full detail on each phase.
 - [x] Phase 0 — Ticker/pair selection (correlation + cointegration + beta-stability screen)
 - [x] Phase 1 — Kalman filter dynamic hedge ratio
 - [x] Phase 2 — FFT denoising pipeline
-- [ ] Phase 3a — Signal-quality sweep across percentile p
-- [ ] Phase 3b — Extreme-event sensitivity analysis
-- [ ] Phase 3c — Trading-performance sweep across percentile p
-- [ ] Phase 3d — Synthesis plot (signal quality vs. performance)
-- [ ] Phase 4 — Trade signal + full backtest, parameter stability check
+- [x] Phase 3a — Signal-quality sweep across percentile p
+- [x] Phase 3b — Extreme-event sensitivity analysis (regime-split Sharpe folded into the 3c sweep)
+- [x] Phase 3c — Trading-performance sweep across percentile p
+- [x] Phase 3d — Synthesis (see HTML report)
+- [x] Phase 4 — Trade signal + full backtest, parameter stability check
 
 ## Notes / decisions log
 
@@ -94,3 +94,40 @@ Phase 3 sweep + trading-performance comparison on top of it.
 
 SSA (Phase 2's flagged robustness alternative) not yet implemented — still open,
 noted in SPEC.md as a later comparison, not required to unblock Phase 3.
+
+## 2026-08-17 — Phase 3 + Phase 4 run (real results, negative)
+
+`src/phase4_backtest.py` (z-score entry/exit, regime split) + `src/phase3_sweep.py`
+(percentile grid x (z_entry, z_exit) grid, both pairs) + tests (26/26 pass total,
+across all phases). Still direct implementation, no Robin/API.
+
+**Bug caught and fixed before trusting results**: the first backtest pass priced
+transaction costs off the spread's own numeric scale (`cost_frac * abs(spread)`,
+spread ~ $0.01-0.001) instead of real traded notional (Y_t + beta_t*X_t, ~$100s).
+That undercharged costs by roughly 1000x and produced implausible Sharpe ~5-7 with
+100% hit rates — caught by eyeballing the numbers, not by a test. Fixed by passing a
+real `notional` series into `backtest()`, computed from actual prices + beta.
+
+**Honest result after the fix: the strategy is unprofitable at every percentile and
+(z_entry, z_exit) tried.** Best Sharpe at any percentile is still negative for both
+V/MA and KO/PEP (roughly -1.4 to -3.2 depending on p), 0% hit rate, and both
+extreme- and normal-regime Sharpe are negative. Full grid in
+`reports/phase3_sweep_{V_MA,KO_PEP}.csv`.
+
+**Why**: this traces straight back to the Phase 1 flag. The Kalman filter's
+likelihood-optimal noise parameters make beta re-fit almost every timestep, so the
+spread is close to a small, fast-mean-reverting residual (half-life <1 day at every
+percentile). A signal that reverts in under a day, traded on daily bars with a
+realistic ~5bps-per-leg cost against real notional, cannot outrun costs — there
+isn't enough magnitude or persistence in the residual to pay for a round trip.
+Higher percentile denoising shrinks losses (fewer trades) but never flips the sign.
+
+**Implication for next steps**: don't tune (z_entry, z_exit, p) further on this
+Kalman fit — that's polishing a signal that's structurally too fast and too small to
+trade profitably. Revisit Phase 1: constrain the noise-parameter search away from the
+near-degenerate regime (e.g. widen OBS_COV_GRID and penalize very short implied
+half-life, not just raw log-likelihood) so the spread retains a slower, larger-
+amplitude mean-reverting component worth paying transaction costs for.
+
+Full write-up with tables and an equity-curve chart: see the published HTML report
+(link given to the user in chat).
