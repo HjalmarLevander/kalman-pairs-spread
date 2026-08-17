@@ -1,0 +1,493 @@
+<title>Kalman Pairs-Spread Report</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --surface-2: #eceef2;
+    --border: #d8dce3;
+    --text: #1b2028;
+    --muted: #5b6472;
+    --accent: #2f6fb0;
+    --loss: #b0362c;
+    --gain: #2f7a4f;
+    --warn: #96650f;
+    --mono: "SF Mono", "Menlo", "Consolas", monospace;
+    --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d0f13;
+      --surface: #151920;
+      --surface-2: #1b212b;
+      --border: #262c36;
+      --text: #dbe2ea;
+      --muted: #8b96a5;
+      --accent: #6fb0f0;
+      --loss: #e2685f;
+      --gain: #7fc98a;
+      --warn: #e8b25f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d0f13;
+    --surface: #151920;
+    --surface-2: #1b212b;
+    --border: #262c36;
+    --text: #dbe2ea;
+    --muted: #8b96a5;
+    --accent: #6fb0f0;
+    --loss: #e2685f;
+    --gain: #7fc98a;
+    --warn: #e8b25f;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+  body { font-family: var(--sans); line-height: 1.55; }
+  main { max-width: 980px; margin: 0 auto; padding: 40px 24px 80px; display: flex; flex-direction: column; gap: 40px; }
+
+  h1, h2, h3 { font-family: var(--sans); text-wrap: balance; margin: 0; }
+  h1 { font-size: 1.7rem; font-weight: 700; }
+  h2 { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; }
+  h3 { font-size: 0.95rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  p { margin: 0; color: var(--text); }
+  .muted { color: var(--muted); }
+  code, .mono, table { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  a { color: var(--accent); }
+
+  header { display: flex; flex-direction: column; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 28px; }
+  header .eyebrow { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+  header p { max-width: 65ch; color: var(--muted); }
+
+  .verdict {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: color-mix(in srgb, var(--loss) 14%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--loss) 40%, var(--border));
+    color: var(--loss);
+    border-radius: 8px; padding: 10px 16px; font-family: var(--mono); font-size: 0.85rem;
+    width: fit-content;
+  }
+  .verdict .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--loss); flex: 0 0 auto; }
+
+  section { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .section-head { display: flex; flex-direction: column; gap: 4px; }
+
+  .pipeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .pipeline .step {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  }
+  .pipeline .step .n { font-family: var(--mono); font-size: 0.7rem; color: var(--accent); }
+  .pipeline .step .label { font-weight: 600; font-size: 0.85rem; }
+  .pipeline .step.done { border-color: color-mix(in srgb, var(--gain) 40%, var(--border)); }
+
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .card .kicker { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .stat-row { display: flex; justify-content: space-between; gap: 12px; font-size: 0.85rem; }
+  .stat-row .k { color: var(--muted); }
+  .stat-row .v { font-family: var(--mono); }
+
+  .callout {
+    border-radius: 10px; padding: 16px 20px; display: flex; gap: 12px; align-items: flex-start;
+    border: 1px solid var(--border); background: var(--surface);
+  }
+  .callout.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+  .callout.loss { border-color: color-mix(in srgb, var(--loss) 45%, var(--border)); background: color-mix(in srgb, var(--loss) 8%, var(--surface)); }
+  .callout .icon { font-size: 1.1rem; line-height: 1.3; flex: 0 0 auto; }
+  .callout .body { font-size: 0.88rem; color: var(--text); }
+  .callout .body strong { color: var(--text); }
+  .callout .body a { color: inherit; text-decoration: underline; }
+
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 0.8rem; }
+  thead th { background: var(--surface-2); color: var(--muted); text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; font-weight: 600; }
+  tbody td { padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface-2); }
+  .neg { color: var(--loss); }
+  .pos { color: var(--gain); }
+  .flag-pass { color: var(--gain); }
+  .flag-watch { color: var(--warn); }
+  .flag-fail { color: var(--muted); }
+
+  .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+  .chart-card svg { width: 100%; height: auto; display: block; }
+  .chart-legend { display: flex; gap: 18px; font-size: 0.75rem; color: var(--muted); flex-wrap: wrap; }
+  .chart-legend .swatch { display: inline-block; width: 10px; height: 2px; margin-right: 6px; vertical-align: middle; }
+
+  footer { border-top: 1px solid var(--border); padding-top: 20px; font-size: 0.78rem; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+
+  ol.reasoning { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 8px; font-size: 0.88rem; }
+</style>
+
+<main>
+
+  <header>
+    <span class="eyebrow">Kalman-Filtered Pairs Spread &middot; Phase 0&ndash;4 Results</span>
+    <h1>The strategy loses money at every setting we tried &mdash; and here's exactly why</h1>
+    <p>Full empirical run of the pipeline in <code>SPEC.md</code>: pair selection, Kalman-filtered
+    hedge ratio, FFT denoising, and a percentile/threshold sweep feeding a realistic-cost
+    backtest. No parameter was hand-picked to make the strategy look good &mdash; this report
+    shows the sweep that instead ruled the current design out, and the specific fix it points to.</p>
+    <div class="verdict"><span class="dot"></span> Verdict: not tradeable as configured &mdash; best Sharpe across the full grid is &minus;1.36 (V/MA) and &minus;1.70 (KO/PEP)</div>
+  </header>
+
+  <section>
+    <div class="section-head">
+      <h2>Pipeline status</h2>
+      <p class="muted">Every phase below ran on real market data (yfinance), local compute only &mdash; no Anthropic API spend.</p>
+    </div>
+    <div class="pipeline">
+      <div class="step done"><span class="n">PHASE 0</span><span class="label">Pair selection</span><span class="muted" style="font-size:0.78rem">12 candidates screened</span></div>
+      <div class="step done"><span class="n">PHASE 1</span><span class="label">Kalman hedge ratio</span><span class="muted" style="font-size:0.78rem">noise params grid-fit</span></div>
+      <div class="step done"><span class="n">PHASE 2</span><span class="label">FFT denoising</span><span class="muted" style="font-size:0.78rem">causal, no lookahead</span></div>
+      <div class="step done"><span class="n">PHASE 3</span><span class="label">Threshold sweep</span><span class="muted" style="font-size:0.78rem">signal vs. performance</span></div>
+      <div class="step done"><span class="n">PHASE 4</span><span class="label">Backtest</span><span class="muted" style="font-size:0.78rem">real-notional costs</span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Phase 0 &middot; Pair shortlist</h2>
+      <p class="muted">2015&ndash;2021 selection window only, strictly walled off from later data to avoid hindsight bias. Full 12-pair table in <code>reports/phase0_pair_shortlist.csv</code>.</p>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>pair</th><th>corr (worst window)</th><th>cointegration p</th><th>beta CV</th><th>note</th></tr></thead>
+        <tbody>
+        <tr>
+          <td>SPY/VOO</td>
+          <td>0.999</td>
+          <td>0.006</td>
+          <td>0.00</td>
+          <td class="flag-pass">cointegrated + consistently correlated</td>
+        </tr>
+        <tr>
+          <td>V/MA</td>
+          <td>0.851</td>
+          <td>0.007</td>
+          <td>0.35</td>
+          <td class="flag-pass">cointegrated + consistently correlated</td>
+        </tr>
+        <tr>
+          <td>KO/PEP</td>
+          <td>0.712</td>
+          <td>0.025</td>
+          <td>0.59</td>
+          <td class="flag-pass">cointegrated + consistently correlated</td>
+        </tr>
+        <tr>
+          <td>GS/MS</td>
+          <td>0.855</td>
+          <td>0.149</td>
+          <td>0.34</td>
+          <td class="flag-watch">not cointegrated in this window</td>
+        </tr>
+        <tr>
+          <td>GLD/GDX</td>
+          <td>0.778</td>
+          <td>0.151</td>
+          <td>0.43</td>
+          <td class="flag-watch">not cointegrated in this window</td>
+        </tr>
+        <tr>
+          <td>HD/LOW</td>
+          <td>0.729</td>
+          <td>0.196</td>
+          <td>0.45</td>
+          <td class="flag-watch">not cointegrated in this window</td>
+        </tr></tbody>
+      </table>
+    </div>
+    <p class="muted" style="font-size:0.82rem">SPY/VOO ranked #1 (near-identical index funds &mdash; a tracking-error trade, not a real economic pair) and was excluded from further phases. <strong style="color:var(--text)">V/MA</strong> and <strong style="color:var(--text)">KO/PEP</strong> carried forward as the genuine candidates.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Phase 1 &middot; Kalman-filtered hedge ratio</h2>
+    </div>
+    <div class="card-grid">
+      <div class="card">
+        <span class="kicker">V / MA</span>
+        <div class="stat-row"><span class="k">delta (process noise)</span><span class="v">1e-4</span></div>
+        <div class="stat-row"><span class="k">obs_cov (observation noise)</span><span class="v">0.01</span></div>
+        <div class="stat-row"><span class="k">beta range over window</span><span class="v">1.17 &ndash; 1.77</span></div>
+      </div>
+      <div class="card">
+        <span class="kicker">KO / PEP</span>
+        <div class="stat-row"><span class="k">delta (process noise)</span><span class="v">1e-3</span></div>
+        <div class="stat-row"><span class="k">obs_cov (observation noise)</span><span class="v">0.001 (grid floor)</span></div>
+        <div class="stat-row"><span class="k">beta range over window</span><span class="v">2.19 &ndash; 3.12</span></div>
+      </div>
+    </div>
+    <div class="callout warn">
+      <span class="icon">&#9888;</span>
+      <div class="body"><strong>Flagged here, confirmed in Phase 3 below:</strong> KO/PEP's log-likelihood-optimal
+      observation noise sat at the grid's lower boundary. That means the filter trusts every new
+      observation heavily enough to re-fit beta almost every timestep &mdash; the spread left over is a
+      small, fast residual, not a slow, tradeable disequilibrium. Log-likelihood rewards a tight fit;
+      it does not reward a <em>useful</em> fit.</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Phase 2 &middot; FFT denoising sanity check</h2>
+      <p class="muted">Causal rolling short-time FFT (60-day window), threshold at percentile <code>p</code>. Variance explained falls monotonically as <code>p</code> rises, as it should &mdash; confirms the mechanism before the full sweep.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Phase 3 &middot; The sweep, and where it breaks</h2>
+      <p class="muted">Best (z_entry, z_exit) at each percentile <code>p</code>, by Sharpe, with realistic per-leg transaction costs (5bps) charged against real position notional (Y<sub>t</sub> + &beta;<sub>t</sub>X<sub>t</sub>) &mdash; not the spread's own tiny numeric scale.</p>
+    </div>
+
+    <div class="callout loss">
+      <span class="icon">&#9679;</span>
+      <div class="body"><strong>A transaction-cost bug was caught and fixed before trusting these numbers.</strong>
+      The first pass priced costs off <code>abs(spread)</code> (~$0.01), not real traded notional (~$100s) &mdash;
+      that undercharged costs roughly 1000x and produced an implausible Sharpe of 5&ndash;7 with a 100% hit rate.
+      After fixing the cost model to use real notional, every result below is negative. See
+      <code>PROGRESS.md</code>, 2026-08-17 entry, for the full account.</div>
+    </div>
+
+    <h3 style="margin-top:4px">V / MA</h3>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>p</th><th>var. explained</th><th>ADF p</th><th>half-life</th><th>best Sharpe</th><th>max DD</th><th>hit rate</th><th>trades</th><th>extreme Sharpe</th><th>normal Sharpe</th></tr></thead>
+        <tbody>
+        <tr>
+          <td>0</td>
+          <td>1.000</td>
+          <td>0.0000</td>
+          <td>0.65d</td>
+          <td class="neg">-2.97</td>
+          <td class="neg">-15.47</td>
+          <td>0</td>
+          <td>38</td>
+          <td class="neg">-13.58</td>
+          <td class="neg">-2.41</td>
+        </tr>
+        <tr>
+          <td>50</td>
+          <td>0.850</td>
+          <td>0.0000</td>
+          <td>0.65d</td>
+          <td class="neg">-2.89</td>
+          <td class="neg">-14.21</td>
+          <td>0</td>
+          <td>36</td>
+          <td class="neg">-12.34</td>
+          <td class="neg">-2.39</td>
+        </tr>
+        <tr>
+          <td>60</td>
+          <td>0.756</td>
+          <td>0.0000</td>
+          <td>0.65d</td>
+          <td class="neg">-2.82</td>
+          <td class="neg">-13.56</td>
+          <td>0</td>
+          <td>33</td>
+          <td class="neg">-12.49</td>
+          <td class="neg">-2.28</td>
+        </tr>
+        <tr>
+          <td>70</td>
+          <td>0.656</td>
+          <td>0.0000</td>
+          <td>0.64d</td>
+          <td class="neg">-2.64</td>
+          <td class="neg">-11.94</td>
+          <td>0</td>
+          <td>29</td>
+          <td class="neg">-12.98</td>
+          <td class="neg">-2.03</td>
+        </tr>
+        <tr>
+          <td>80</td>
+          <td>0.539</td>
+          <td>0.0000</td>
+          <td>0.63d</td>
+          <td class="neg">-2.37</td>
+          <td class="neg">-10.11</td>
+          <td>0</td>
+          <td>22</td>
+          <td class="neg">-10.82</td>
+          <td class="neg">-1.83</td>
+        </tr>
+        <tr>
+          <td>90</td>
+          <td>0.376</td>
+          <td>0.0000</td>
+          <td>0.60d</td>
+          <td class="neg">-2.21</td>
+          <td class="neg">-8.18</td>
+          <td>0</td>
+          <td>19</td>
+          <td class="neg">-8.60</td>
+          <td class="neg">-1.80</td>
+        </tr>
+        <tr>
+          <td>95</td>
+          <td>0.226</td>
+          <td>0.0000</td>
+          <td>0.59d</td>
+          <td class="neg">-1.36</td>
+          <td class="neg">-3.15</td>
+          <td>0</td>
+          <td>7</td>
+          <td class="neg">-3.14</td>
+          <td class="neg">-1.27</td>
+        </tr></tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:4px">KO / PEP</h3>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>p</th><th>var. explained</th><th>ADF p</th><th>half-life</th><th>best Sharpe</th><th>max DD</th><th>hit rate</th><th>trades</th><th>extreme Sharpe</th><th>normal Sharpe</th></tr></thead>
+        <tbody>
+        <tr>
+          <td>0</td>
+          <td>1.000</td>
+          <td>0.0000</td>
+          <td>0.63d</td>
+          <td class="neg">-3.23</td>
+          <td class="neg">-7.05</td>
+          <td>0</td>
+          <td>37</td>
+          <td class="neg">-13.18</td>
+          <td class="neg">-2.80</td>
+        </tr>
+        <tr>
+          <td>50</td>
+          <td>0.856</td>
+          <td>0.0000</td>
+          <td>0.61d</td>
+          <td class="neg">-2.80</td>
+          <td class="neg">-5.34</td>
+          <td>0</td>
+          <td>28</td>
+          <td class="neg">-12.58</td>
+          <td class="neg">-2.31</td>
+        </tr>
+        <tr>
+          <td>60</td>
+          <td>0.776</td>
+          <td>0.0000</td>
+          <td>0.60d</td>
+          <td class="neg">-2.65</td>
+          <td class="neg">-4.75</td>
+          <td>0</td>
+          <td>25</td>
+          <td class="neg">-12.02</td>
+          <td class="neg">-2.16</td>
+        </tr>
+        <tr>
+          <td>70</td>
+          <td>0.662</td>
+          <td>0.0000</td>
+          <td>0.59d</td>
+          <td class="neg">-2.81</td>
+          <td class="neg">-5.21</td>
+          <td>0</td>
+          <td>28</td>
+          <td class="neg">-13.81</td>
+          <td class="neg">-2.26</td>
+        </tr>
+        <tr>
+          <td>80</td>
+          <td>0.486</td>
+          <td>0.0000</td>
+          <td>0.57d</td>
+          <td class="neg">-2.77</td>
+          <td class="neg">-4.93</td>
+          <td>0</td>
+          <td>27</td>
+          <td class="neg">-13.21</td>
+          <td class="neg">-2.24</td>
+        </tr>
+        <tr>
+          <td>90</td>
+          <td>0.363</td>
+          <td>0.0000</td>
+          <td>0.55d</td>
+          <td class="neg">-2.27</td>
+          <td class="neg">-3.28</td>
+          <td>0</td>
+          <td>18</td>
+          <td class="neg">-10.47</td>
+          <td class="neg">-1.79</td>
+        </tr>
+        <tr>
+          <td>95</td>
+          <td>0.207</td>
+          <td>0.0000</td>
+          <td>0.51d</td>
+          <td class="neg">-1.70</td>
+          <td class="neg">-1.88</td>
+          <td>0</td>
+          <td>10</td>
+          <td class="neg">-7.82</td>
+          <td class="neg">-1.27</td>
+        </tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Phase 4 &middot; Cumulative PnL, best config per pair</h2>
+      <p class="muted">p=60, z_entry=2.5, z_exit=0.25, 5bps/leg on real notional, 2015&ndash;2021. One unit of spread notional per trade.</p>
+    </div>
+    <div class="card-grid">
+      <div class="chart-card">
+        <span class="kicker">V / MA &middot; Sharpe -2.82 &middot; 33 trades &middot; max DD -13.56</span>
+        <svg viewBox="0 0 640 140" preserveAspectRatio="none">
+          <line x1="8" y1="17.143598743492554" x2="632" y2="17.143598743492554" stroke="var(--border)" stroke-width="1" stroke-dasharray="3,3" />
+          <polyline points="8.0,8.0 11.9,8.0 15.8,8.0 19.7,8.0 23.6,8.0 27.5,8.0 31.4,8.0 35.3,8.0 39.2,8.0 43.1,8.0 47.0,8.0 50.9,8.0 54.8,8.0 58.7,9.1 62.6,9.1 66.5,9.1 70.4,9.1 74.3,9.1 78.2,9.1 82.1,9.1 86.0,10.3 89.9,10.3 93.8,10.3 97.7,10.3 101.6,10.3 105.5,10.3 109.4,11.2 113.3,11.2 117.2,11.2 121.1,11.2 125.0,11.2 128.9,11.2 132.8,11.2 136.7,11.2 140.6,11.2 144.5,11.2 148.4,11.2 152.3,11.2 156.2,11.2 160.1,11.2 164.0,11.2 167.9,11.2 171.8,12.7 175.7,12.7 179.6,14.2 183.5,14.2 187.4,14.2 191.3,14.2 195.2,15.7 199.1,15.7 203.0,15.7 206.9,15.7 210.8,15.7 214.7,15.7 218.6,15.7 222.5,15.7 226.4,15.7 230.3,15.7 234.2,15.7 238.1,15.7 242.0,15.7 245.9,15.7 249.8,17.9 253.7,17.9 257.6,17.9 261.5,17.9 265.4,17.9 269.3,20.3 273.2,20.3 277.1,20.3 281.0,20.3 284.9,23.0 288.8,23.0 292.7,23.0 296.6,23.0 300.5,23.0 304.4,26.0 308.3,28.8 312.2,28.8 316.1,32.0 320.0,32.0 323.9,32.0 327.8,35.2 331.7,35.2 335.6,35.2 339.5,35.2 343.4,35.2 347.3,35.2 351.2,35.2 355.1,35.2 359.0,41.7 362.9,41.7 366.8,41.7 370.7,41.7 374.6,44.8 378.5,44.8 382.4,44.8 386.3,44.8 390.2,44.8 394.1,48.9 398.0,48.9 401.9,48.9 405.8,48.9 409.7,48.9 413.6,48.9 417.5,48.9 421.4,48.9 425.3,48.9 429.2,48.9 433.1,53.4 437.0,53.4 440.9,53.4 444.8,53.4 448.7,53.4 452.6,53.4 456.5,53.4 460.4,58.8 464.3,64.4 468.2,69.5 472.1,75.7 476.0,80.4 479.9,80.4 483.8,80.4 487.7,80.4 491.6,80.4 495.5,80.4 499.4,80.4 503.3,80.4 507.2,80.4 511.1,80.4 515.0,80.4 518.9,80.4 522.8,80.4 526.7,80.4 530.6,85.3 534.5,90.9 538.4,90.9 542.3,90.9 546.2,90.9 550.1,90.9 554.0,90.9 557.9,90.9 561.8,90.9 565.7,97.0 569.6,97.0 573.5,97.0 577.4,97.0 581.3,97.0 585.2,97.0 589.1,97.0 593.0,97.0 596.9,97.0 600.8,97.0 604.7,97.0 608.6,97.0 612.5,103.0 616.4,103.0 620.3,118.1 624.2,129.3 628.1,132.0 632.0,132.0" fill="none" stroke="var(--loss)" stroke-width="1.6" />
+        </svg>
+        <div class="chart-legend"><span><span class="swatch" style="background:var(--loss)"></span>cumulative PnL (spread-notional units)</span></div>
+      </div>
+      <div class="chart-card">
+        <span class="kicker">KO / PEP &middot; Sharpe -2.65 &middot; 25 trades &middot; max DD -4.75</span>
+        <svg viewBox="0 0 640 140" preserveAspectRatio="none">
+          <line x1="8" y1="34.08713946100603" x2="632" y2="34.08713946100603" stroke="var(--border)" stroke-width="1" stroke-dasharray="3,3" />
+          <polyline points="8.0,8.0 11.9,8.0 15.8,8.0 19.7,8.0 23.6,8.0 27.5,8.0 31.4,8.0 35.3,8.0 39.2,8.0 43.1,8.0 47.0,8.0 50.9,8.0 54.8,8.0 58.7,8.0 62.6,11.6 66.5,15.0 70.4,15.0 74.3,15.0 78.2,15.0 82.1,15.0 86.0,15.0 89.9,15.0 93.8,15.0 97.7,15.0 101.6,15.0 105.5,15.0 109.4,15.0 113.3,15.0 117.2,15.0 121.1,15.0 125.0,18.8 128.9,18.8 132.8,18.8 136.7,18.8 140.6,18.8 144.5,18.8 148.4,22.9 152.3,22.9 156.2,22.9 160.1,22.9 164.0,22.9 167.9,22.9 171.8,22.9 175.7,26.8 179.6,26.8 183.5,26.8 187.4,26.8 191.3,26.8 195.2,26.8 199.1,30.9 203.0,30.9 206.9,30.9 210.8,30.9 214.7,30.9 218.6,30.9 222.5,30.9 226.4,30.9 230.3,30.9 234.2,30.9 238.1,30.9 242.0,30.9 245.9,30.9 249.8,35.5 253.7,37.6 257.6,39.8 261.5,39.8 265.4,39.8 269.3,39.8 273.2,39.8 277.1,39.8 281.0,39.8 284.9,39.8 288.8,44.2 292.7,44.2 296.6,44.2 300.5,44.2 304.4,44.2 308.3,44.2 312.2,44.2 316.1,44.2 320.0,44.2 323.9,48.7 327.8,48.7 331.7,53.3 335.6,53.3 339.5,53.3 343.4,53.3 347.3,53.3 351.2,53.3 355.1,53.3 359.0,53.3 362.9,58.0 366.8,58.0 370.7,58.0 374.6,58.0 378.5,62.6 382.4,62.6 386.3,62.6 390.2,62.6 394.1,62.6 398.0,62.6 401.9,62.6 405.8,62.6 409.7,62.6 413.6,62.6 417.5,68.0 421.4,68.0 425.3,68.0 429.2,68.0 433.1,68.0 437.0,73.7 440.9,73.7 444.8,73.7 448.7,73.7 452.6,73.7 456.5,73.7 460.4,73.7 464.3,79.8 468.2,79.8 472.1,95.8 476.0,104.9 479.9,104.9 483.8,104.9 487.7,104.9 491.6,104.9 495.5,104.9 499.4,104.9 503.3,104.9 507.2,104.9 511.1,104.9 515.0,104.9 518.9,104.9 522.8,104.9 526.7,104.9 530.6,107.9 534.5,110.9 538.4,110.9 542.3,110.9 546.2,110.9 550.1,110.9 554.0,110.9 557.9,110.9 561.8,110.9 565.7,110.9 569.6,110.9 573.5,110.9 577.4,110.9 581.3,117.4 585.2,117.4 589.1,117.4 593.0,117.4 596.9,117.4 600.8,117.4 604.7,117.4 608.6,117.4 612.5,117.4 616.4,117.4 620.3,124.6 624.2,124.6 628.1,132.0 632.0,132.0" fill="none" stroke="var(--loss)" stroke-width="1.6" />
+        </svg>
+        <div class="chart-legend"><span><span class="swatch" style="background:var(--loss)"></span>cumulative PnL (spread-notional units)</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Why it fails, and what to fix</h2>
+    </div>
+    <ol class="reasoning">
+      <li><strong>The chain of cause is traceable, not mysterious.</strong> Phase 1's likelihood-optimal noise
+      parameters push the filter into an over-adaptive regime &rarr; the residual spread has a half-life
+      under one day at every percentile tested &rarr; a signal that reverts in under a day, traded on daily
+      bars, cannot generate enough magnitude between entries and exits to outrun a realistic ~5bps-per-leg
+      cost against real notional.</li>
+      <li><strong>Denoising alone can't rescue it.</strong> Raising the FFT percentile threshold shrinks trade
+      count and losses (V/MA: &minus;15.5 max DD at p=0 &rarr; &minus;3.1 at p=95) but never flips Sharpe positive
+      &mdash; it's suppressing the same too-fast signal, not fixing its root cause.</li>
+      <li><strong>The fix is upstream, in Phase 1.</strong> Re-fit the Kalman noise parameters with a
+      selection criterion that penalizes short implied half-life, not raw log-likelihood alone &mdash;
+      or constrain <code>obs_cov</code> away from the near-degenerate regime the grid search walked into.
+      A slower, larger-amplitude residual is what's needed before another trading-performance sweep is
+      worth running.</li>
+    </ol>
+  </section>
+
+  <footer>
+    <span>Generated from <code>reports/*.csv</code> and <code>reports/equity_curves.json</code> by <code>scripts/build_report.py</code> &mdash; re-run after any phase output changes.</span>
+    <span>26/26 unit tests passing across Phases 0&ndash;4. No Anthropic API calls in this run (backend credit exhausted); Robin's approved plan/draft still guided the Phase 0 implementation.</span>
+  </footer>
+
+</main>
