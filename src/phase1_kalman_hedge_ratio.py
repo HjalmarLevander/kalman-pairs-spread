@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 from pykalman import KalmanFilter
 
+from src.mean_reversion import half_life as _half_life
 from src.phase0_pair_selection import SELECTION_END, SELECTION_START, load_prices
 
 # Grid search ranges for the two free noise variances. delta controls how
@@ -77,6 +78,45 @@ def fit_noise_params(x: pd.Series, y: pd.Series) -> tuple[float, float, float]:
             ll = kf.loglikelihood(y_arr.reshape(-1, 1))
             if ll > best[2]:
                 best = (delta, obs_cov, ll)
+    return best
+
+
+def fit_noise_params_with_half_life_floor(
+    x: pd.Series, y: pd.Series, min_half_life_days: float = 5.0
+) -> tuple[float, float, float, float]:
+    """Same grid search as fit_noise_params, but restricted to (delta,
+    obs_cov) combinations whose resulting spread has an OU half-life at or
+    above min_half_life_days, maximizing log-likelihood only among those.
+
+    Motivation (Phase 3 finding, 2026-08-17): pure log-likelihood MLE
+    consistently walked to the near-degenerate regime where beta re-fits
+    almost every timestep, leaving a sub-one-day-half-life residual that
+    cannot outrun realistic transaction costs no matter how it's denoised
+    or traded. A tight fit isn't the same as a useful one -- this adds the
+    half-life constraint the plain MLE has no way to express.
+
+    Falls back to the single (delta, obs_cov) with the longest achievable
+    half-life if nothing in the grid clears the floor.
+    """
+    aligned = pd.concat([x, y], axis=1, join="inner").dropna()
+    x_arr, y_arr = aligned.iloc[:, 0].to_numpy(), aligned.iloc[:, 1].to_numpy()
+
+    candidates = []  # (delta, obs_cov, loglik, half_life)
+    for delta in DELTA_GRID:
+        for obs_cov in OBS_COV_GRID:
+            kf = _build_filter(x_arr, delta, obs_cov)
+            state_means, _ = kf.filter(y_arr.reshape(-1, 1))
+            beta = state_means[:, 0]
+            spread = pd.Series(y_arr - beta * x_arr, index=aligned.index)
+            hl = _half_life(spread)
+            ll = kf.loglikelihood(y_arr.reshape(-1, 1))
+            candidates.append((delta, obs_cov, ll, hl))
+
+    eligible = [c for c in candidates if not np.isnan(c[3]) and c[3] >= min_half_life_days]
+    if eligible:
+        best = max(eligible, key=lambda c: c[2])
+    else:
+        best = max(candidates, key=lambda c: (c[3] if not np.isnan(c[3]) else -np.inf))
     return best
 
 

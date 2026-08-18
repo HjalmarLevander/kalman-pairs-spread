@@ -2,7 +2,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.phase1_kalman_hedge_ratio import fit_noise_params, run_kalman_filter
+from src.phase1_kalman_hedge_ratio import (
+    fit_noise_params,
+    fit_noise_params_with_half_life_floor,
+    run_kalman_filter,
+)
 
 
 @pytest.fixture
@@ -77,3 +81,17 @@ def test_fit_noise_params_returns_grid_members(rng):
     assert delta in DELTA_GRID
     assert obs_cov in OBS_COV_GRID
     assert np.isfinite(ll)
+
+
+def test_half_life_floor_never_returns_shorter_half_life_than_plain_mle(rng):
+    """The floored fit should push toward longer or equal half-life vs. the
+    unconstrained MLE fit -- it's strictly more conservative, never less."""
+    from src.mean_reversion import half_life
+    x, y, _ = _static_beta_pair(rng, n=600, obs_noise=0.4)
+
+    delta_mle, obs_cov_mle, _ = fit_noise_params(x, y)
+    result_mle = run_kalman_filter("X/Y", x, y, delta_mle, obs_cov_mle)
+    hl_mle = half_life(result_mle.spread)
+
+    delta_floor, obs_cov_floor, _, hl_floor = fit_noise_params_with_half_life_floor(x, y, min_half_life_days=5.0)
+    assert hl_floor >= hl_mle or np.isnan(hl_mle)

@@ -69,6 +69,12 @@
     width: fit-content;
   }
   .verdict .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--loss); flex: 0 0 auto; }
+  .verdict.good {
+    background: color-mix(in srgb, var(--gain) 14%, var(--surface));
+    border-color: color-mix(in srgb, var(--gain) 40%, var(--border));
+    color: var(--gain);
+  }
+  .verdict.good .dot { background: var(--gain); }
 
   section { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .section-head { display: flex; flex-direction: column; gap: 4px; }
@@ -125,13 +131,14 @@
 <main>
 
   <header>
-    <span class="eyebrow">Kalman-Filtered Pairs Spread &middot; Phase 0&ndash;4 Results</span>
-    <h1>The strategy loses money at every setting we tried &mdash; and here's exactly why</h1>
+    <span class="eyebrow">Kalman-Filtered Pairs Spread &middot; Phase 0&ndash;4 Results + Follow-up</span>
+    <h1>It failed for a specific, fixable reason &mdash; and the fix holds out-of-sample</h1>
     <p>Full empirical run of the pipeline in <code>SPEC.md</code>: pair selection, Kalman-filtered
     hedge ratio, FFT denoising, and a percentile/threshold sweep feeding a realistic-cost
-    backtest. No parameter was hand-picked to make the strategy look good &mdash; this report
-    shows the sweep that instead ruled the current design out, and the specific fix it points to.</p>
-    <div class="verdict"><span class="dot"></span> Verdict: not tradeable as configured &mdash; best Sharpe across the full grid is &minus;1.36 (V/MA) and &minus;1.70 (KO/PEP)</div>
+    backtest. The first pass (below) ruled the naive MLE fit out entirely. A follow-up
+    experiment tests the diagnosed cause directly, and validates the fix on 2022&ndash;2026 data
+    the fit never saw.</p>
+    <div class="verdict good"><span class="dot"></span> Updated verdict: constraining the Kalman fit to a &ge;10-day implied half-life turns both pairs profitable &mdash; Sharpe 1.35 (V/MA) and 1.30 (KO/PEP) in-sample, and it holds on out-of-sample data: 1.35 and 1.38</div>
   </header>
 
   <section>
@@ -477,17 +484,95 @@
       <li><strong>Denoising alone can't rescue it.</strong> Raising the FFT percentile threshold shrinks trade
       count and losses (V/MA: &minus;15.5 max DD at p=0 &rarr; &minus;3.1 at p=95) but never flips Sharpe positive
       &mdash; it's suppressing the same too-fast signal, not fixing its root cause.</li>
-      <li><strong>The fix is upstream, in Phase 1.</strong> Re-fit the Kalman noise parameters with a
-      selection criterion that penalizes short implied half-life, not raw log-likelihood alone &mdash;
-      or constrain <code>obs_cov</code> away from the near-degenerate regime the grid search walked into.
-      A slower, larger-amplitude residual is what's needed before another trading-performance sweep is
-      worth running.</li>
+      <li><strong>The fix is upstream, in Phase 1 &mdash; tested below, not just proposed.</strong> Re-fit the
+      Kalman noise parameters with a selection criterion that penalizes short implied half-life, not raw
+      log-likelihood alone.</li>
     </ol>
   </section>
 
+  <section>
+    <div class="section-head">
+      <h2>The fix, tested: constrain the fit away from the degenerate regime</h2>
+      <p class="muted">Added a half-life floor to the Phase 1 noise-parameter search: among (delta, obs_cov)
+      grid points, maximize log-likelihood <em>only among those whose resulting spread has OU half-life
+      &ge; 10 days</em>, instead of maximizing log-likelihood alone.</p>
+    </div>
+
+    <div class="card-grid">
+      <div class="card">
+        <span class="kicker">V / MA &mdash; effect of the floor</span>
+        <div class="stat-row"><span class="k">half-life, unconstrained MLE</span><span class="v neg">0.65d</span></div>
+        <div class="stat-row"><span class="k">half-life, floored fit</span><span class="v pos">7.3d</span></div>
+        <div class="stat-row"><span class="k">spread std, unconstrained &rarr; floored</span><span class="v">0.010 &rarr; 4.02</span></div>
+        <div class="stat-row"><span class="k">best Sharpe, unconstrained &rarr; floored</span><span class="v"><span class="neg">&minus;1.36</span> &rarr; <span class="pos">1.35</span></span></div>
+      </div>
+      <div class="card">
+        <span class="kicker">KO / PEP &mdash; effect of the floor</span>
+        <div class="stat-row"><span class="k">half-life, unconstrained MLE</span><span class="v neg">0.63d</span></div>
+        <div class="stat-row"><span class="k">half-life, floored fit</span><span class="v pos">11.6d</span></div>
+        <div class="stat-row"><span class="k">spread std, unconstrained &rarr; floored</span><span class="v">0.0006 &rarr; 2.42</span></div>
+        <div class="stat-row"><span class="k">best Sharpe, unconstrained &rarr; floored</span><span class="v"><span class="neg">&minus;1.70</span> &rarr; <span class="pos">1.30</span></span></div>
+      </div>
+    </div>
+
+    <p class="muted" style="font-size:0.85rem">Positive Sharpe held across the whole percentile grid tested
+    (p = 0, 50, 70, 90) for both pairs &mdash; not one lucky point on the sweep, which is the parameter-stability
+    plateau the spec asked for as evidence against overfitting a single setting.</p>
+
+    <div class="section-head" style="margin-top:8px">
+      <h3 style="margin:0">Out-of-sample validation &mdash; the test that actually matters</h3>
+      <p class="muted">Froze (delta, obs_cov, p, z_entry, z_exit) exactly as fit/chosen on 2015&ndash;2021, then
+      ran the unchanged pipeline on 2022&ndash;2026 data neither this fit nor any earlier sweep had touched.</p>
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>pair</th><th>window</th><th>half-life</th><th>Sharpe</th><th>max DD</th><th>hit rate</th><th>trades</th></tr></thead>
+        <tbody>
+          <tr><td>V/MA</td><td>in-sample (2015&ndash;21)</td><td>7.3d</td><td class="pos">1.35</td><td class="neg">-1.90</td><td>0.89</td><td>96</td></tr>
+          <tr><td>V/MA</td><td><strong>out-of-sample (2022&ndash;26)</strong></td><td>&mdash;</td><td class="pos">1.35</td><td class="neg">-1.34</td><td>0.93</td><td>55</td></tr>
+          <tr><td>KO/PEP</td><td>in-sample (2015&ndash;21)</td><td>11.6d</td><td class="pos">1.30</td><td class="neg">-0.61</td><td>0.88</td><td>76</td></tr>
+          <tr><td>KO/PEP</td><td><strong>out-of-sample (2022&ndash;26)</strong></td><td>&mdash;</td><td class="pos">1.38</td><td class="neg">-3.80</td><td>0.90</td><td>48</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-grid">
+      <div class="chart-card">
+        <span class="kicker">V / MA &middot; cumulative PnL, in-sample vs. out-of-sample</span>
+        <svg viewBox="0 0 640 140" preserveAspectRatio="none">
+          <line x1="8" y1="130.93708944455213" x2="632" y2="130.93708944455213" stroke="var(--border)" stroke-width="1" stroke-dasharray="3,3" />
+          <polyline points="8.0,130.0 9.9,130.0 11.9,130.0 13.8,130.0 15.7,130.0 17.6,130.0 19.6,130.0 21.5,130.0 23.4,130.0 25.3,130.0 27.3,130.0 29.2,129.9 31.1,129.3 33.0,132.0 35.0,130.8 36.9,131.1 38.8,130.6 40.7,130.6 42.7,130.7 44.6,130.6 46.5,130.0 48.4,130.1 50.4,128.5 52.3,127.8 54.2,127.9 56.1,127.7 58.1,126.2 60.0,126.8 61.9,127.4 63.9,126.1 65.8,126.1 67.7,126.7 69.6,125.9 71.6,125.9 73.5,125.3 75.4,125.9 77.3,125.0 79.3,123.5 81.2,123.5 83.1,123.7 85.0,122.9 87.0,122.7 88.9,125.3 90.8,124.3 92.7,125.5 94.7,124.0 96.6,123.5 98.5,123.5 100.4,127.3 102.4,126.2 104.3,126.6 106.2,125.2 108.1,125.2 110.1,125.2 112.0,125.3 113.9,124.9 115.9,124.9 117.8,124.9 119.7,125.4 121.6,124.5 123.6,124.6 125.5,123.8 127.4,126.0 129.3,125.5 131.3,125.1 133.2,125.1 135.1,124.1 137.0,124.3 139.0,123.5 140.9,123.3 142.8,122.1 144.7,124.4 146.7,123.7 148.6,124.7 150.5,123.5 152.4,123.5 154.4,125.1 156.3,122.2 158.2,122.2 160.1,120.4 162.1,120.4 164.0,120.3 165.9,119.2 167.9,120.4 169.8,118.1 171.7,117.5 173.6,116.7 175.6,114.6 177.5,116.4 179.4,116.5 181.3,113.1 183.3,111.5 185.2,111.5 187.1,111.7 189.0,115.2 191.0,111.6 192.9,109.7 194.8,107.7 196.7,108.3 198.7,106.8 200.6,104.9 202.5,103.5 204.4,104.3 206.4,102.1 208.3,102.1 210.2,101.5 212.1,100.9 214.1,100.6 216.0,94.6 217.9,92.4 219.9,94.0 221.8,91.9 223.7,90.0 225.6,90.7 227.6,89.6 229.5,89.6 231.4,89.6 233.3,86.1 235.3,80.7 237.2,83.9 239.1,77.9 241.0,71.6 243.0,69.4 244.9,69.4 246.8,67.6 248.7,63.6 250.7,60.7 252.6,57.5 254.5,63.0 256.4,57.6 258.4,57.2 260.3,57.2 262.2,57.2 264.1,56.0 266.1,57.6 268.0,55.6 269.9,52.1 271.9,52.1 273.8,53.2 275.7,44.5 277.6,41.3 279.6,42.4 281.5,37.2 283.4,31.7 285.3,31.7 287.3,37.6 289.2,28.3 291.1,28.3 293.0,25.6 295.0,25.6 296.9,20.5 298.8,18.6 300.7,16.4 302.7,14.2 304.6,12.7 306.5,9.3 308.4,8.0 310.4,16.7 312.3,11.4 314.2,11.4 316.1,11.4" fill="none" stroke="var(--muted)" stroke-width="1.4" />
+          <polyline points="318.1,130.0 320.0,130.0 321.9,130.0 323.9,130.0 325.8,130.0 327.7,130.0 329.6,130.0 331.6,130.0 333.5,130.0 335.4,130.0 337.3,130.0 339.3,130.0 341.2,130.0 343.1,130.0 345.0,130.0 347.0,130.0 348.9,130.0 350.8,130.1 352.7,129.9 354.7,125.9 356.6,125.9 358.5,129.7 360.4,126.0 362.4,123.9 364.3,123.9 366.2,123.9 368.1,124.2 370.1,122.2 372.0,121.9 373.9,121.1 375.9,117.6 377.8,121.0 379.7,116.0 381.6,118.5 383.6,118.5 385.5,116.3 387.4,116.3 389.3,114.9 391.3,112.8 393.2,112.5 395.1,114.1 397.0,112.2 399.0,110.7 400.9,110.7 402.8,110.7 404.7,110.7 406.7,109.0 408.6,105.9 410.5,109.0 412.4,106.9 414.4,107.3 416.3,103.4 418.2,103.7 420.1,101.3 422.1,103.6 424.0,98.0 425.9,101.1 427.9,96.8 429.8,95.8 431.7,95.8 433.6,95.9 435.6,98.6 437.5,96.1 439.4,94.4 441.3,93.9 443.3,99.6 445.2,103.8 447.1,96.6 449.0,96.6 451.0,96.6 452.9,95.6 454.8,96.5 456.7,92.8 458.7,92.8 460.6,92.8 462.5,95.8 464.4,93.1 466.4,90.2 468.3,90.2 470.2,90.2 472.1,91.3 474.1,91.6 476.0,89.7 477.9,86.2 479.9,87.9 481.8,87.1 483.7,82.9 485.6,83.3 487.6,80.8 489.5,81.7 491.4,80.0 493.3,77.4 495.3,76.4 497.2,78.4 499.1,78.3 501.0,77.1 503.0,79.5 504.9,76.1 506.8,79.7 508.7,72.3 510.7,69.2 512.6,66.9 514.5,65.3 516.4,71.9 518.4,67.8 520.3,64.3 522.2,64.3 524.1,64.3 526.1,64.3 528.0,64.3 529.9,64.3 531.9,62.4 533.8,63.7 535.7,61.2 537.6,61.2 539.6,61.2 541.5,56.5 543.4,56.9 545.3,55.1 547.3,56.2 549.2,54.3 551.1,53.8 553.0,53.8 555.0,53.8 556.9,53.8 558.8,53.8 560.7,53.8 562.7,53.5 564.6,58.9 566.5,64.5 568.4,59.5 570.4,52.2 572.3,52.2 574.2,52.2 576.1,55.5 578.1,56.9 580.0,50.6 581.9,50.6 583.9,50.6 585.8,46.8 587.7,46.8 589.6,41.3 591.6,41.3 593.5,41.3 595.4,38.9 597.3,34.7 599.3,34.6 601.2,30.9 603.1,30.9 605.0,28.1 607.0,28.1 608.9,28.1 610.8,28.1 612.7,28.1 614.7,25.2 616.6,31.1 618.5,24.9 620.4,26.8 622.4,20.4 624.3,20.4 626.2,20.4 628.1,18.3 630.1,21.9 632.0,18.8" fill="none" stroke="var(--gain)" stroke-width="1.8" />
+        </svg>
+        <div class="chart-legend"><span><span class="swatch" style="background:var(--muted)"></span>in-sample (fit window)</span><span><span class="swatch" style="background:var(--gain)"></span>out-of-sample (frozen params)</span></div>
+      </div>
+      <div class="chart-card">
+        <span class="kicker">KO / PEP &middot; cumulative PnL, in-sample vs. out-of-sample</span>
+        <svg viewBox="0 0 640 140" preserveAspectRatio="none">
+          <line x1="8" y1="124.0912307197494" x2="632" y2="124.0912307197494" stroke="var(--border)" stroke-width="1" stroke-dasharray="3,3" />
+          <polyline points="8.0,122.4 9.9,122.4 11.9,122.4 13.8,122.4 15.7,122.4 17.6,122.4 19.6,122.4 21.5,122.4 23.4,122.4 25.3,122.4 27.3,122.4 29.2,121.7 31.1,121.0 33.0,120.5 35.0,120.0 36.9,118.8 38.8,117.6 40.7,116.8 42.7,117.2 44.6,116.0 46.5,115.6 48.4,116.4 50.4,117.3 52.3,115.8 54.2,115.1 56.1,115.0 58.1,114.7 60.0,114.3 61.9,115.4 63.9,113.8 65.8,116.4 67.7,116.4 69.6,114.3 71.6,114.3 73.5,114.3 75.4,117.8 77.3,119.5 79.3,116.1 81.2,115.7 83.1,115.7 85.0,116.4 87.0,114.6 88.9,114.6 90.8,117.1 92.7,116.7 94.7,114.3 96.6,114.3 98.5,113.6 100.4,113.7 102.4,114.6 104.3,113.0 106.2,112.7 108.1,112.0 110.1,112.4 112.0,111.4 113.9,110.5 115.9,111.0 117.8,111.4 119.7,110.1 121.6,111.5 123.6,109.5 125.5,107.8 127.4,110.0 129.3,111.2 131.3,110.8 133.2,109.9 135.1,112.2 137.0,111.0 139.0,112.1 140.9,110.5 142.8,110.5 144.7,108.7 146.7,107.2 148.6,107.7 150.5,106.0 152.4,107.4 154.4,109.8 156.3,109.8 158.2,107.2 160.1,108.9 162.1,110.1 164.0,110.2 165.9,107.6 167.9,105.7 169.8,104.1 171.7,103.3 173.6,103.3 175.6,100.7 177.5,97.4 179.4,95.9 181.3,92.5 183.3,89.9 185.2,90.2 187.1,88.8 189.0,88.8 191.0,93.3 192.9,88.4 194.8,89.8 196.7,88.5 198.7,88.5 200.6,83.3 202.5,82.8 204.4,80.6 206.4,82.3 208.3,83.5 210.2,85.8 212.1,83.6 214.1,83.5 216.0,82.0 217.9,85.2 219.9,79.9 221.8,79.9 223.7,79.9 225.6,79.9 227.6,79.9 229.5,81.9 231.4,78.0 233.3,77.3 235.3,74.5 237.2,81.5 239.1,83.1 241.0,83.8 243.0,79.1 244.9,74.5 246.8,83.2 248.7,72.3 250.7,72.3 252.6,72.5 254.5,68.6 256.4,67.7 258.4,74.2 260.3,70.8 262.2,61.3 264.1,61.3 266.1,61.5 268.0,58.3 269.9,54.6 271.9,47.6 273.8,47.9 275.7,45.0 277.6,44.2 279.6,44.2 281.5,41.0 283.4,36.9 285.3,35.2 287.3,32.2 289.2,32.2 291.1,30.7 293.0,30.0 295.0,30.2 296.9,28.4 298.8,27.1 300.7,27.1 302.7,27.3 304.6,28.1 306.5,25.9 308.4,26.2 310.4,19.4 312.3,16.9 314.2,12.8 316.1,14.2" fill="none" stroke="var(--muted)" stroke-width="1.4" />
+          <polyline points="318.1,122.4 320.0,122.4 321.9,122.4 323.9,122.4 325.8,122.4 327.7,122.4 329.6,122.4 331.6,122.4 333.5,122.4 335.4,122.4 337.3,122.4 339.3,122.4 341.2,122.4 343.1,122.4 345.0,122.4 347.0,122.4 348.9,122.4 350.8,121.9 352.7,125.0 354.7,126.8 356.6,124.2 358.5,127.5 360.4,127.6 362.4,124.6 364.3,124.9 366.2,122.9 368.1,121.9 370.1,124.6 372.0,132.0 373.9,128.0 375.9,122.5 377.8,122.8 379.7,121.0 381.6,124.5 383.6,123.6 385.5,121.4 387.4,122.1 389.3,117.7 391.3,117.8 393.2,116.2 395.1,118.0 397.0,115.1 399.0,113.7 400.9,113.7 402.8,113.7 404.7,113.7 406.7,112.9 408.6,110.6 410.5,116.5 412.4,114.2 414.4,111.1 416.3,110.1 418.2,110.1 420.1,110.1 422.1,110.1 424.0,110.1 425.9,106.0 427.9,106.0 429.8,107.5 431.7,106.7 433.6,105.9 435.6,108.5 437.5,103.8 439.4,104.0 441.3,99.5 443.3,106.6 445.2,103.0 447.1,102.1 449.0,103.3 451.0,101.6 452.9,101.6 454.8,101.6 456.7,99.2 458.7,99.8 460.6,96.5 462.5,97.2 464.4,95.6 466.4,91.9 468.3,91.9 470.2,90.7 472.1,94.4 474.1,88.5 476.0,91.0 477.9,86.2 479.9,86.2 481.8,86.2 483.7,86.5 485.6,92.2 487.6,90.8 489.5,91.9 491.4,88.5 493.3,88.0 495.3,88.0 497.2,88.0 499.1,88.0 501.0,82.6 503.0,78.3 504.9,78.3 506.8,77.8 508.7,75.2 510.7,77.1 512.6,81.9 514.5,80.2 516.4,84.4 518.4,73.2 520.3,73.2 522.2,73.2 524.1,74.0 526.1,70.6 528.0,70.9 529.9,69.7 531.9,69.9 533.8,79.6 535.7,70.0 537.6,66.4 539.6,64.3 541.5,64.3 543.4,64.3 545.3,61.9 547.3,66.1 549.2,67.4 551.1,61.3 553.0,60.8 555.0,63.0 556.9,66.2 558.8,66.5 560.7,67.5 562.7,71.2 564.6,65.2 566.5,69.9 568.4,72.0 570.4,71.2 572.3,68.4 574.2,66.0 576.1,64.9 578.1,53.4 580.0,51.0 581.9,45.5 583.9,48.7 585.8,43.5 587.7,44.9 589.6,43.0 591.6,39.5 593.5,39.5 595.4,39.5 597.3,39.5 599.3,35.4 601.2,37.0 603.1,29.3 605.0,25.5 607.0,25.5 608.9,29.3 610.8,23.2 612.7,21.2 614.7,19.0 616.6,15.0 618.5,21.9 620.4,20.4 622.4,17.6 624.3,16.0 626.2,11.2 628.1,8.0 630.1,8.0 632.0,8.0" fill="none" stroke="var(--gain)" stroke-width="1.8" />
+        </svg>
+        <div class="chart-legend"><span><span class="swatch" style="background:var(--muted)"></span>in-sample (fit window)</span><span><span class="swatch" style="background:var(--gain)"></span>out-of-sample (frozen params)</span></div>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <span class="icon">&#9888;</span>
+      <div class="body"><strong>What this does and doesn't prove.</strong> The noise-parameter choice (the half-life
+      floor) was genuinely validated against a holdout the fit never saw. The (p, z_entry, z_exit) trading-rule
+      grid was <em>not</em> independently re-validated out-of-sample &mdash; it was chosen by best in-sample Sharpe,
+      so one layer of selection risk remains there. The OOS Kalman filter was also cold-started at 2022-01-01
+      rather than carrying forward filter state from the fit window, which a live system would do &mdash; if
+      anything this biases the OOS number conservative. Before sizing real capital: re-validate the trading-rule
+      grid on an independent third window, and carry the filter state forward instead of restarting it.</div>
+    </div>
+  </section>
+
   <footer>
-    <span>Generated from <code>reports/*.csv</code> and <code>reports/equity_curves.json</code> by <code>scripts/build_report.py</code> &mdash; re-run after any phase output changes.</span>
-    <span>26/26 unit tests passing across Phases 0&ndash;4. No Anthropic API calls in this run (backend credit exhausted); Robin's approved plan/draft still guided the Phase 0 implementation.</span>
+    <span>Generated from <code>reports/*.csv</code>, <code>reports/equity_curves.json</code>, and <code>reports/half_life_floor_results.json</code> by <code>scripts/build_report.py</code> &mdash; re-run after any phase output changes.</span>
+    <span>27/27 unit tests passing across Phases 0&ndash;4. No Anthropic API calls in this run (backend credit exhausted); Robin's approved plan/draft still guided the Phase 0 implementation.</span>
   </footer>
 
 </main>

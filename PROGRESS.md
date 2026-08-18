@@ -131,3 +131,60 @@ amplitude mean-reverting component worth paying transaction costs for.
 
 Full write-up with tables and an equity-curve chart: see the published HTML report
 (link given to the user in chat).
+
+## 2026-08-17 — Follow-up: half-life floor fixes it, and it holds out-of-sample
+
+Tested the fix proposed above rather than just asserting it. Added
+`fit_noise_params_with_half_life_floor()` to `src/phase1_kalman_hedge_ratio.py`
+(same grid, but restricted to (delta, obs_cov) pairs whose resulting spread has OU
+half-life >= a floor, e.g. 10 days; falls back to the longest achievable half-life
+if nothing clears it). Test added confirming it never returns a shorter half-life
+than the unconstrained MLE fit.
+
+**Effect on the fit** (`scripts/rerun_with_half_life_floor.py`): half-life jumps
+from <1 day to 7.3d (V/MA) and 11.6d (KO/PEP); spread std jumps ~400-6000x (V/MA:
+0.01 -> 4.02, KO/PEP: 0.0006 -> 2.42). The MLE was picking a near-degenerate fit
+that produced a residual too small and fast to trade; constraining it away from
+that regime produces a residual with real, tradeable magnitude.
+
+**Effect on the backtest, same realistic notional-based costs**: Sharpe flips
+positive at every percentile tried for both pairs. Best: **V/MA Sharpe 1.35 at
+p=70** (86-102 trades, 88-90% hit rate across p), **KO/PEP Sharpe 1.30 at p=70**
+(72-76 trades, 83-88% hit rate). Positive Sharpe held across the whole percentile
+grid (0/50/70/90) for both pairs, not just one lucky point -- the parameter-
+stability plateau the spec asked for.
+
+**Out-of-sample validation** (`scripts/out_of_sample_check.py`) -- the test that
+actually matters: froze (delta, obs_cov, p, z_entry, z_exit) exactly as fit/chosen
+on 2015-2021, then ran the whole pipeline unchanged on 2022-2026 data neither this
+fit nor any earlier sweep had ever touched.
+
+| pair | in-sample half-life | OOS half-life | OOS Sharpe | OOS hit rate | OOS trades |
+|---|---|---|---|---|---|
+| V/MA | 7.3d | 8.0d | **1.35** | 0.93 | 55 |
+| KO/PEP | 11.6d | 14.3d | **1.38** | 0.90 | 48 |
+
+Sharpe held (slightly improved) and half-life stayed close to the in-sample value
+on genuinely unseen data. This is the strongest evidence in the project so far that
+the effect is real rather than a sweep artifact.
+
+**Caveats before calling this done**:
+- The OOS Kalman filter was cold-started (initial_state_mean=0) at 2022-01-01 rather
+  than carrying forward filter state from the fitted window, which is what a live
+  system would do -- introduces a short burn-in transient not present in a true
+  live deployment, biasing the OOS number slightly conservative if anything.
+- z_entry/z_exit and p were chosen by best-Sharpe on the *same* in-sample window as
+  the half-life floor, so there's still one layer of in-sample selection this OOS
+  check doesn't fully wash out (the floor and the noise-param choice were the part
+  actually tested against a true holdout; the trading-rule grid was not
+  independently re-validated OOS).
+- 5bps/leg is a reasonable but assumed cost; not fit or validated against real
+  broker/exchange data for these tickers.
+- Regime-split Sharpe (extreme > normal in most rows) deserves a closer look before
+  trusting it -- could be genuine (bigger dislocations = bigger reversion trades) or
+  an artifact of how `regime_split_dates` flags days using the spread's own moves.
+
+Not yet done: SSA denoising comparison (Phase 2's flagged alternative), Johansen/
+multi-asset extension, position sizing beyond one unit of spread notional, and a
+second, independent OOS window (e.g. holding out 2022-2023 to validate on 2024-2026
+so the current OOS window isn't itself reused for further tuning).

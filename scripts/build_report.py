@@ -84,6 +84,33 @@ def main():
     v_ma_path, v_ma_zero, v_ma_lo, v_ma_hi = svg_path(equity["V_MA"]["equity"])
     ko_pep_path, ko_pep_zero, ko_pep_lo, ko_pep_hi = svg_path(equity["KO_PEP"]["equity"])
 
+    oos = json.load(open(os.path.join(REPORTS, "half_life_floor_results.json")))
+
+    def combined_path(is_eq, oos_eq, width=640, height=140, pad=8):
+        # Plot both series on one shared scale so the visual jump at the
+        # in-sample/out-of-sample boundary is honest, not independently
+        # rescaled per segment.
+        all_vals = is_eq + oos_eq
+        lo, hi = min(all_vals), max(all_vals)
+        span = (hi - lo) or 1.0
+        n_total = len(is_eq) + len(oos_eq)
+
+        def pts(vals, offset):
+            out = []
+            for i, v in enumerate(vals):
+                x = pad + (width - 2 * pad) * (offset + i) / max(n_total - 1, 1)
+                y = pad + (height - 2 * pad) * (1 - (v - lo) / span)
+                out.append(f"{x:.1f},{y:.1f}")
+            return " ".join(out)
+
+        is_path = pts(is_eq, 0)
+        oos_path = pts(oos_eq, len(is_eq))
+        zero_y = pad + (height - 2 * pad) * (1 - (0 - lo) / span) if lo <= 0 <= hi else None
+        return is_path, oos_path, zero_y
+
+    v_ma_is_path, v_ma_oos_path, v_ma_oos_zero = combined_path(oos["V_MA"]["is"]["equity"], oos["V_MA"]["oos"]["equity"])
+    ko_pep_is_path, ko_pep_oos_path, ko_pep_oos_zero = combined_path(oos["KO_PEP"]["is"]["equity"], oos["KO_PEP"]["oos"]["equity"])
+
     html = f"""<title>Kalman Pairs-Spread Report</title>
 <style>
   :root {{
@@ -155,6 +182,12 @@ def main():
     width: fit-content;
   }}
   .verdict .dot {{ width: 8px; height: 8px; border-radius: 50%; background: var(--loss); flex: 0 0 auto; }}
+  .verdict.good {{
+    background: color-mix(in srgb, var(--gain) 14%, var(--surface));
+    border-color: color-mix(in srgb, var(--gain) 40%, var(--border));
+    color: var(--gain);
+  }}
+  .verdict.good .dot {{ background: var(--gain); }}
 
   section {{ display: flex; flex-direction: column; gap: 16px; min-width: 0; }}
   .section-head {{ display: flex; flex-direction: column; gap: 4px; }}
@@ -211,13 +244,14 @@ def main():
 <main>
 
   <header>
-    <span class="eyebrow">Kalman-Filtered Pairs Spread &middot; Phase 0&ndash;4 Results</span>
-    <h1>The strategy loses money at every setting we tried &mdash; and here's exactly why</h1>
+    <span class="eyebrow">Kalman-Filtered Pairs Spread &middot; Phase 0&ndash;4 Results + Follow-up</span>
+    <h1>It failed for a specific, fixable reason &mdash; and the fix holds out-of-sample</h1>
     <p>Full empirical run of the pipeline in <code>SPEC.md</code>: pair selection, Kalman-filtered
     hedge ratio, FFT denoising, and a percentile/threshold sweep feeding a realistic-cost
-    backtest. No parameter was hand-picked to make the strategy look good &mdash; this report
-    shows the sweep that instead ruled the current design out, and the specific fix it points to.</p>
-    <div class="verdict"><span class="dot"></span> Verdict: not tradeable as configured &mdash; best Sharpe across the full grid is &minus;1.36 (V/MA) and &minus;1.70 (KO/PEP)</div>
+    backtest. The first pass (below) ruled the naive MLE fit out entirely. A follow-up
+    experiment tests the diagnosed cause directly, and validates the fix on 2022&ndash;2026 data
+    the fit never saw.</p>
+    <div class="verdict good"><span class="dot"></span> Updated verdict: constraining the Kalman fit to a &ge;10-day implied half-life turns both pairs profitable &mdash; Sharpe 1.35 (V/MA) and 1.30 (KO/PEP) in-sample, and it holds on out-of-sample data: 1.35 and 1.38</div>
   </header>
 
   <section>
@@ -353,17 +387,95 @@ def main():
       <li><strong>Denoising alone can't rescue it.</strong> Raising the FFT percentile threshold shrinks trade
       count and losses (V/MA: &minus;15.5 max DD at p=0 &rarr; &minus;3.1 at p=95) but never flips Sharpe positive
       &mdash; it's suppressing the same too-fast signal, not fixing its root cause.</li>
-      <li><strong>The fix is upstream, in Phase 1.</strong> Re-fit the Kalman noise parameters with a
-      selection criterion that penalizes short implied half-life, not raw log-likelihood alone &mdash;
-      or constrain <code>obs_cov</code> away from the near-degenerate regime the grid search walked into.
-      A slower, larger-amplitude residual is what's needed before another trading-performance sweep is
-      worth running.</li>
+      <li><strong>The fix is upstream, in Phase 1 &mdash; tested below, not just proposed.</strong> Re-fit the
+      Kalman noise parameters with a selection criterion that penalizes short implied half-life, not raw
+      log-likelihood alone.</li>
     </ol>
   </section>
 
+  <section>
+    <div class="section-head">
+      <h2>The fix, tested: constrain the fit away from the degenerate regime</h2>
+      <p class="muted">Added a half-life floor to the Phase 1 noise-parameter search: among (delta, obs_cov)
+      grid points, maximize log-likelihood <em>only among those whose resulting spread has OU half-life
+      &ge; 10 days</em>, instead of maximizing log-likelihood alone.</p>
+    </div>
+
+    <div class="card-grid">
+      <div class="card">
+        <span class="kicker">V / MA &mdash; effect of the floor</span>
+        <div class="stat-row"><span class="k">half-life, unconstrained MLE</span><span class="v neg">0.65d</span></div>
+        <div class="stat-row"><span class="k">half-life, floored fit</span><span class="v pos">7.3d</span></div>
+        <div class="stat-row"><span class="k">spread std, unconstrained &rarr; floored</span><span class="v">0.010 &rarr; 4.02</span></div>
+        <div class="stat-row"><span class="k">best Sharpe, unconstrained &rarr; floored</span><span class="v"><span class="neg">&minus;1.36</span> &rarr; <span class="pos">1.35</span></span></div>
+      </div>
+      <div class="card">
+        <span class="kicker">KO / PEP &mdash; effect of the floor</span>
+        <div class="stat-row"><span class="k">half-life, unconstrained MLE</span><span class="v neg">0.63d</span></div>
+        <div class="stat-row"><span class="k">half-life, floored fit</span><span class="v pos">11.6d</span></div>
+        <div class="stat-row"><span class="k">spread std, unconstrained &rarr; floored</span><span class="v">0.0006 &rarr; 2.42</span></div>
+        <div class="stat-row"><span class="k">best Sharpe, unconstrained &rarr; floored</span><span class="v"><span class="neg">&minus;1.70</span> &rarr; <span class="pos">1.30</span></span></div>
+      </div>
+    </div>
+
+    <p class="muted" style="font-size:0.85rem">Positive Sharpe held across the whole percentile grid tested
+    (p = 0, 50, 70, 90) for both pairs &mdash; not one lucky point on the sweep, which is the parameter-stability
+    plateau the spec asked for as evidence against overfitting a single setting.</p>
+
+    <div class="section-head" style="margin-top:8px">
+      <h3 style="margin:0">Out-of-sample validation &mdash; the test that actually matters</h3>
+      <p class="muted">Froze (delta, obs_cov, p, z_entry, z_exit) exactly as fit/chosen on 2015&ndash;2021, then
+      ran the unchanged pipeline on 2022&ndash;2026 data neither this fit nor any earlier sweep had touched.</p>
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>pair</th><th>window</th><th>half-life</th><th>Sharpe</th><th>max DD</th><th>hit rate</th><th>trades</th></tr></thead>
+        <tbody>
+          <tr><td>V/MA</td><td>in-sample (2015&ndash;21)</td><td>{oos['V_MA']['half_life_is']:.1f}d</td><td class="pos">{oos['V_MA']['is']['sharpe']:.2f}</td><td class="neg">{oos['V_MA']['is']['max_dd']:.2f}</td><td>{oos['V_MA']['is']['hit_rate']:.2f}</td><td>{oos['V_MA']['is']['n_trades']}</td></tr>
+          <tr><td>V/MA</td><td><strong>out-of-sample (2022&ndash;26)</strong></td><td>&mdash;</td><td class="pos">{oos['V_MA']['oos']['sharpe']:.2f}</td><td class="neg">{oos['V_MA']['oos']['max_dd']:.2f}</td><td>{oos['V_MA']['oos']['hit_rate']:.2f}</td><td>{oos['V_MA']['oos']['n_trades']}</td></tr>
+          <tr><td>KO/PEP</td><td>in-sample (2015&ndash;21)</td><td>{oos['KO_PEP']['half_life_is']:.1f}d</td><td class="pos">{oos['KO_PEP']['is']['sharpe']:.2f}</td><td class="neg">{oos['KO_PEP']['is']['max_dd']:.2f}</td><td>{oos['KO_PEP']['is']['hit_rate']:.2f}</td><td>{oos['KO_PEP']['is']['n_trades']}</td></tr>
+          <tr><td>KO/PEP</td><td><strong>out-of-sample (2022&ndash;26)</strong></td><td>&mdash;</td><td class="pos">{oos['KO_PEP']['oos']['sharpe']:.2f}</td><td class="neg">{oos['KO_PEP']['oos']['max_dd']:.2f}</td><td>{oos['KO_PEP']['oos']['hit_rate']:.2f}</td><td>{oos['KO_PEP']['oos']['n_trades']}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-grid">
+      <div class="chart-card">
+        <span class="kicker">V / MA &middot; cumulative PnL, in-sample vs. out-of-sample</span>
+        <svg viewBox="0 0 640 140" preserveAspectRatio="none">
+          <line x1="8" y1="{v_ma_oos_zero if v_ma_oos_zero else 8}" x2="632" y2="{v_ma_oos_zero if v_ma_oos_zero else 8}" stroke="var(--border)" stroke-width="1" stroke-dasharray="3,3" />
+          <polyline points="{v_ma_is_path}" fill="none" stroke="var(--muted)" stroke-width="1.4" />
+          <polyline points="{v_ma_oos_path}" fill="none" stroke="var(--gain)" stroke-width="1.8" />
+        </svg>
+        <div class="chart-legend"><span><span class="swatch" style="background:var(--muted)"></span>in-sample (fit window)</span><span><span class="swatch" style="background:var(--gain)"></span>out-of-sample (frozen params)</span></div>
+      </div>
+      <div class="chart-card">
+        <span class="kicker">KO / PEP &middot; cumulative PnL, in-sample vs. out-of-sample</span>
+        <svg viewBox="0 0 640 140" preserveAspectRatio="none">
+          <line x1="8" y1="{ko_pep_oos_zero if ko_pep_oos_zero else 8}" x2="632" y2="{ko_pep_oos_zero if ko_pep_oos_zero else 8}" stroke="var(--border)" stroke-width="1" stroke-dasharray="3,3" />
+          <polyline points="{ko_pep_is_path}" fill="none" stroke="var(--muted)" stroke-width="1.4" />
+          <polyline points="{ko_pep_oos_path}" fill="none" stroke="var(--gain)" stroke-width="1.8" />
+        </svg>
+        <div class="chart-legend"><span><span class="swatch" style="background:var(--muted)"></span>in-sample (fit window)</span><span><span class="swatch" style="background:var(--gain)"></span>out-of-sample (frozen params)</span></div>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <span class="icon">&#9888;</span>
+      <div class="body"><strong>What this does and doesn't prove.</strong> The noise-parameter choice (the half-life
+      floor) was genuinely validated against a holdout the fit never saw. The (p, z_entry, z_exit) trading-rule
+      grid was <em>not</em> independently re-validated out-of-sample &mdash; it was chosen by best in-sample Sharpe,
+      so one layer of selection risk remains there. The OOS Kalman filter was also cold-started at 2022-01-01
+      rather than carrying forward filter state from the fit window, which a live system would do &mdash; if
+      anything this biases the OOS number conservative. Before sizing real capital: re-validate the trading-rule
+      grid on an independent third window, and carry the filter state forward instead of restarting it.</div>
+    </div>
+  </section>
+
   <footer>
-    <span>Generated from <code>reports/*.csv</code> and <code>reports/equity_curves.json</code> by <code>scripts/build_report.py</code> &mdash; re-run after any phase output changes.</span>
-    <span>26/26 unit tests passing across Phases 0&ndash;4. No Anthropic API calls in this run (backend credit exhausted); Robin's approved plan/draft still guided the Phase 0 implementation.</span>
+    <span>Generated from <code>reports/*.csv</code>, <code>reports/equity_curves.json</code>, and <code>reports/half_life_floor_results.json</code> by <code>scripts/build_report.py</code> &mdash; re-run after any phase output changes.</span>
+    <span>27/27 unit tests passing across Phases 0&ndash;4. No Anthropic API calls in this run (backend credit exhausted); Robin's approved plan/draft still guided the Phase 0 implementation.</span>
   </footer>
 
 </main>

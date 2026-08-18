@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from statsmodels.tsa.stattools import adfuller
 
+from src.mean_reversion import half_life
 from src.phase0_pair_selection import SELECTION_END, SELECTION_START, load_prices
 from src.phase2_fft_denoise import rolling_fft_denoise, variance_explained
 from src.phase4_backtest import backtest, regime_split_dates, split_metrics_by_regime
@@ -23,27 +24,6 @@ Z_ENTRY_GRID = (1.0, 1.5, 2.0, 2.5)
 Z_EXIT_GRID = (0.25, 0.5, 0.75)
 FFT_WINDOW = 60
 ZSCORE_WINDOW = 60
-
-
-def half_life(spread: pd.Series) -> float:
-    """OU mean-reversion half-life via AR(1) fit on the spread: ln(2)/-ln(phi)
-    from spread_t - spread_{t-1} = -lambda*(spread_{t-1} - mean) + eps,
-    fit by OLS. Returns inf if the fit implies no reversion (lambda <= 0).
-    """
-    s = spread.dropna()
-    if len(s) < 30:
-        return float("nan")
-    lagged = s.shift(1).dropna()
-    delta = (s - s.shift(1)).dropna()
-    lagged = lagged.loc[delta.index]
-    x = lagged.to_numpy() - lagged.mean()
-    y = delta.to_numpy()
-    if x.var() == 0:
-        return float("nan")
-    lam = -np.polyfit(x, y, 1)[0]
-    if lam <= 0:
-        return float("inf")
-    return float(np.log(2) / lam)
 
 
 def adf_pvalue(spread: pd.Series) -> float:
