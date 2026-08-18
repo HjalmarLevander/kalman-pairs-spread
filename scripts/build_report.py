@@ -6,6 +6,8 @@ import csv
 import json
 import os
 
+import numpy as np
+
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 REPORTS = os.path.join(ROOT, "reports")
 
@@ -110,6 +112,68 @@ def main():
 
     v_ma_is_path, v_ma_oos_path, v_ma_oos_zero = combined_path(oos["V_MA"]["is"]["equity"], oos["V_MA"]["oos"]["equity"])
     ko_pep_is_path, ko_pep_oos_path, ko_pep_oos_zero = combined_path(oos["KO_PEP"]["is"]["equity"], oos["KO_PEP"]["oos"]["equity"])
+
+    mc = json.load(open(os.path.join(REPORTS, "monte_carlo.json")))
+
+    def fan_chart_svg(band, width=640, height=220, pad_l=44, pad_r=8, pad_t=10, pad_b=24):
+        all_vals = band["p5"] + band["p95"]
+        lo, hi = min(all_vals), max(all_vals)
+        span = (hi - lo) or 1.0
+        n = len(band["days"])
+        plot_w = width - pad_l - pad_r
+        plot_h = height - pad_t - pad_b
+
+        def x_of(i):
+            return pad_l + plot_w * i / max(n - 1, 1)
+
+        def y_of(v):
+            return pad_t + plot_h * (1 - (v - lo) / span)
+
+        def line(key):
+            return " ".join(f"{x_of(i):.1f},{y_of(v):.1f}" for i, v in enumerate(band[key]))
+
+        # band polygon: p5 path forward, p95 path backward
+        band_pts = [f"{x_of(i):.1f},{y_of(v):.1f}" for i, v in enumerate(band["p5"])]
+        band_pts += [f"{x_of(i):.1f},{y_of(v):.1f}" for i, v in reversed(list(enumerate(band["p95"])))]
+        band_poly = " ".join(band_pts)
+
+        band_25_75 = [f"{x_of(i):.1f},{y_of(v):.1f}" for i, v in enumerate(band["p25"])]
+        band_25_75 += [f"{x_of(i):.1f},{y_of(v):.1f}" for i, v in reversed(list(enumerate(band["p75"])))]
+        band_25_75_poly = " ".join(band_25_75)
+
+        start_y = y_of(1000.0) if lo <= 1000.0 <= hi else None
+        sample_lines = ""
+        for path in band["sample_paths"][:6]:
+            pts = " ".join(f"{x_of(i):.1f},{y_of(v):.1f}" for i, v in enumerate(path))
+            sample_lines += f'<polyline points="{pts}" fill="none" stroke="var(--muted)" stroke-width="0.6" opacity="0.35" />\n          '
+
+        y_ticks = np.linspace(lo, hi, 4) if False else [lo, (lo+hi)/2, hi]
+        ticks_svg = "".join(
+            f'<text x="{pad_l-6}" y="{y_of(t)+3:.1f}" text-anchor="end" font-size="9" fill="var(--muted)">${t:,.0f}</text>'
+            for t in y_ticks
+        )
+
+        return dict(
+            band_poly=band_poly, band_25_75_poly=band_25_75_poly,
+            median_line=line("p50"), start_y=start_y, sample_lines=sample_lines, ticks_svg=ticks_svg,
+            width=width, height=height,
+        )
+
+    fan = fan_chart_svg(mc["fan_chart"])
+
+    def horizon_row(name):
+        h = mc["horizons"][name]
+        gain50 = h["p50"] - 1000.0
+        return f"""
+        <tr>
+          <td>{name}</td>
+          <td class="{'pos' if gain50 >= 0 else 'neg'}">${h['p50']:,.0f} ({gain50:+.0f})</td>
+          <td>${h['p5']:,.0f} &ndash; ${h['p95']:,.0f}</td>
+          <td>{h['prob_loss']*100:.0f}%</td>
+          <td>{h['prob_below_800']*100:.0f}%</td>
+        </tr>"""
+
+    horizon_rows_html = "".join(horizon_row(n) for n in ["1 month", "3 months", "6 months", "1 year", "2 years", "3 years"])
 
     html = f"""<title>Kalman Pairs-Spread Report</title>
 <style>
@@ -470,6 +534,57 @@ def main():
       rather than carrying forward filter state from the fit window, which a live system would do &mdash; if
       anything this biases the OOS number conservative. Before sizing real capital: re-validate the trading-rule
       grid on an independent third window, and carry the filter state forward instead of restarting it.</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>What would $1000 actually earn?</h2>
+      <p class="muted">Monte Carlo projection, not a promise. {mc['n_sims']:,} block-bootstrap
+      simulations (10-trading-day blocks, to preserve short-run trade clustering) drawn from the
+      strategy's own {mc['history_days']:,}-day realized daily PnL history (2015&ndash;2026, both
+      pairs combined, frozen half-life-floor config). $1000 split $500/$500 across V/MA and KO/PEP,
+      each pair sized at a fixed number of spread units (500 / average notional) &mdash; positions do
+      <strong>not</strong> compound as capital grows, which makes this a conservative model of the
+      upside.</p>
+    </div>
+
+    <div class="chart-card">
+      <span class="kicker">Projected capital over 3 years &middot; median, 25&ndash;75%, 5&ndash;95% bands</span>
+      <svg viewBox="0 0 {fan['width']} {fan['height']}" preserveAspectRatio="none">
+        {f'<line x1="44" y1="{fan["start_y"]:.1f}" x2="{fan["width"]-8}" y2="{fan["start_y"]:.1f}" stroke="var(--border)" stroke-width="1" stroke-dasharray="3,3" />' if fan['start_y'] else ''}
+        {fan['sample_lines']}
+        <polygon points="{fan['band_poly']}" fill="var(--accent)" opacity="0.10" />
+        <polygon points="{fan['band_25_75_poly']}" fill="var(--accent)" opacity="0.22" />
+        <polyline points="{fan['median_line']}" fill="none" stroke="var(--accent)" stroke-width="1.8" />
+        {fan['ticks_svg']}
+      </svg>
+      <div class="chart-legend">
+        <span><span class="swatch" style="background:var(--accent);opacity:0.9"></span>median path</span>
+        <span><span class="swatch" style="background:var(--accent);opacity:0.4"></span>25&ndash;75th percentile</span>
+        <span><span class="swatch" style="background:var(--accent);opacity:0.2"></span>5&ndash;95th percentile</span>
+        <span><span class="swatch" style="background:var(--muted);opacity:0.5"></span>individual sample paths</span>
+      </div>
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>horizon</th><th>median outcome</th><th>5th&ndash;95th percentile</th><th>P(any loss)</th><th>P(below $800)</th></tr></thead>
+        <tbody>{horizon_rows_html}</tbody>
+      </table>
+    </div>
+
+    <div class="callout warn">
+      <span class="icon">&#9888;</span>
+      <div class="body"><strong>Read the spread, not just the median.</strong> At 1 month, there's roughly
+      a 1-in-4 chance of showing a loss on paper &mdash; that's the nature of a strategy with real but modest
+      edge (Sharpe ~1.9 in this dollar-scaled series) traded on a small, mostly-uninvested capital base.
+      The odds of loss shrink at longer horizons (2%: at 1 year, ~0%: at 3 years) because the edge has more
+      time to compound past the noise, not because any single trade gets safer. This is a bootstrap of
+      <strong>{mc['history_days']:,} historical days</strong> from one strategy config on two pairs &mdash;
+      it reflects the risk/spread <em>shape</em> well, but treat the exact tail probabilities as
+      approximate: real future regimes (rate environments, sector-specific shocks to V/MA or KO/PEP) are
+      not guaranteed to resemble 2015&ndash;2026.</div>
     </div>
   </section>
 
