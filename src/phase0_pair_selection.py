@@ -41,6 +41,34 @@ CANDIDATE_PAIRS: list[tuple[str, str]] = [
     ("JPM", "BAC"),   # money-center banks
     ("PG", "CL"),     # household/personal-care staples
     ("MSFT", "GOOGL"),  # large-cap tech (weaker linkage, deliberate negative control)
+    # widened universe -- more sectors, more dual-listed / near-substitute pairs
+    ("WMT", "TGT"),   # big-box retail
+    ("MCD", "YUM"),   # quick-service restaurants
+    ("PFE", "MRK"),   # pharma majors
+    ("JNJ", "ABT"),   # diversified healthcare
+    ("T", "VZ"),      # telecom carriers
+    ("CVS", "WBA"),   # pharmacy retail
+    ("C", "WFC"),     # money-center banks (2nd tier)
+    ("CAT", "DE"),    # heavy equipment
+    ("UNP", "CSX"),   # rail freight
+    ("COST", "WMT"),  # big-box / warehouse retail
+    ("INTC", "AMD"),  # semiconductors (weaker linkage, competitive not complementary)
+    ("SLB", "HAL"),   # oilfield services
+    ("MET", "PRU"),   # life insurance
+    ("EMR", "ITW"),   # industrial conglomerates
+    ("KMB", "PG"),    # household paper/personal-care staples
+    ("AEP", "DUK"),   # regulated utilities
+    ("SO", "D"),      # regulated utilities (2nd pair)
+    ("NEE", "AEP"),   # utilities, renewables-leaning vs. traditional
+    # commodities & crypto -- no pure-play liquid US-listed tin or aluminum
+    # ETF exists on yfinance; DBB (broad base metals) / CPER (copper) is the
+    # closest honest proxy, not a real aluminum/tin pair
+    ("GLD", "SLV"),      # gold vs. silver, the classic precious-metals pair
+    ("GLD", "PPLT"),     # gold vs. platinum
+    ("SLV", "PPLT"),     # silver vs. platinum
+    ("PALL", "PPLT"),    # palladium vs. platinum (both auto-catalyst metals)
+    ("DBB", "CPER"),     # broad base-metals ETF vs. copper (aluminum/tin proxy, not a true pair)
+    ("BTC-USD", "ETH-USD"),  # crypto majors
 ]
 
 # No-lookahead boundary. Every fetch in this module is clipped to this

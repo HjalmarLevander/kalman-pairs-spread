@@ -188,3 +188,75 @@ Not yet done: SSA denoising comparison (Phase 2's flagged alternative), Johansen
 multi-asset extension, position sizing beyond one unit of spread notional, and a
 second, independent OOS window (e.g. holding out 2022-2023 to validate on 2024-2026
 so the current OOS window isn't itself reused for further tuning).
+
+## 2026-08-19 — Widened universe (36 pairs incl. commodities/crypto), then walk-forward invalidated 2 of the 4 "new" pairs
+
+**Widened candidate universe** (`src/phase0_pair_selection.py` CANDIDATE_PAIRS, now 36
+pairs) to include more equity sectors plus commodities (GLD/SLV, GLD/PPLT, SLV/PPLT,
+PALL/PPLT, DBB/CPER as an aluminum/tin proxy -- no liquid pure-play US-listed ETF
+exists for either metal) and crypto (BTC-USD/ETH-USD). **None of the commodity or
+crypto pairs cleared cointegration** on the 2015-2021 screen (best was BTC/ETH at
+p=0.21, still far above 0.05) -- excluded, consistent with gold/silver's well-known
+non-mean-reverting multi-year trending behavior and BTC/ETH's narrative-driven
+decoupling. Not forced in.
+
+Of the equity expansion, two borderline candidates (KMB/PG p=0.052, UNP/CSX p=0.068
+on the static 2015-2021 screen) were fit and OOS-tested the same way as V/MA/KO-PEP
+and looked strong: OOS Sharpe 1.77 and 1.95, even better than in-sample. A combined
+4-pair book raised capital utilization from 57%->92% of days active and portfolio
+Sharpe to ~3-4 (with idle-cash yield). This looked like a genuine improvement.
+
+**Then ran actual walk-forward validation** (`scripts/walk_forward_validation.py`,
+`reports/walk_forward_results.csv`) to directly test the concern that "best 2 of 36
+candidates on one static window" is itself a selection-bias risk the single OOS
+check doesn't rule out. Method: 3 non-overlapping folds with an expanding training
+window (train always starts 2015-01-01; folds train through 2019/2021/2023, test
+purely forward on the following ~2 years each), re-running the FULL pair screen
+(correlation + cointegration + beta stability) from scratch on each fold's
+training-only data -- not just refitting Kalman params on pairs chosen once.
+
+**Result: KMB/PG and UNP/CSX do not survive this test.** Neither pair cleared the
+cointegration screen in fold 1 (train through 2019) or fold 2 (train through 2021)
+-- they only appear as "cointegrated" once the training window is extended through
+2023. That means their apparent structural relationship is not stable across
+independent historical windows; it's very plausibly a product of being the best 2 of
+36 on one specific long window, exactly the risk flagged earlier. Their strong OOS
+Sharpe from the single static-window test should now be treated as likely a
+selection-bias artifact, not validated edge. **Do not include KMB/PG or UNP/CSX in
+the tradeable book without further evidence** (e.g. surviving a 4th, later fold).
+
+**V/MA and KO/PEP, by contrast, both cleared the cointegration screen independently
+in fold 2 AND fold 3** (i.e. using only 2015-2021 training data, and again using only
+2015-2023 training data) **and both had positive OOS Sharpe in both corresponding
+test windows**: V/MA fold2=1.38/fold3=1.77, KO/PEP fold2=0.64/fold3=2.20. This is a
+materially stronger validation than the single-split OOS check from 2026-08-17 --
+these two pairs now have two independent, non-overlapping confirmations, not one.
+
+**SPY/VOO is actively bad, not just "excluded on taste."** It has the tightest
+cointegration (p=0.006-0.019, best in the whole universe) but strongly NEGATIVE OOS
+Sharpe in both folds it appears in (-7.75, -5.96) with ~0% hit rate -- a reminder
+that near-perfect cointegration (two index funds tracking the same thing) does not
+imply a tradeable mean-reverting spread; the near-zero spread from near-identical
+assets is dominated by costs and micro-noise, not signal. Good confirmation that the
+original qualitative call to exclude it was right, now backed by a real backtest
+number instead of intuition.
+
+**BTC-USD/ETH-USD**, the one crypto pair to even marginally clear screening (fold 3
+only, p=0.049), had OOS Sharpe -7.16 -- consistent with the earlier decision not to
+force crypto into the book, and a reminder that a pair barely clearing a p<0.05 bar
+in one fold, appearing in no other fold, is exactly the profile of a false positive.
+
+**Also confirms the multiple-comparisons concern was real and appropriately sized**:
+with 36 candidates tested per fold, the Bonferroni-corrected threshold is
+p<0.00139; almost nothing survives it (only V/MA in fold 3, barely). Raw p<0.05
+alone is not a reliable filter at this many candidates -- repeated appearance across
+independent folds with consistent-sign OOS performance is doing the real work of
+separating signal from noise here, not the p-value on its own.
+
+**Updated conclusion**: the validated, tradeable book is back to **V/MA and KO/PEP
+only** -- now with stronger (multi-fold) evidence than before, not weaker. The
+4-pair, Sharpe-3-4 result from the prior session should be treated as retracted
+pending KMB/PG and UNP/CSX surviving a genuine walk-forward fold, not as a real
+improvement. The lesson generalizes: "screen many pairs, keep the winners, OOS-test
+the winners once" is not sufficient -- the winners need to independently reappear
+across multiple non-overlapping selection windows before they're trustworthy.
