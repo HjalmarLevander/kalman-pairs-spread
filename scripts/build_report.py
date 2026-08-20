@@ -114,6 +114,7 @@ def main():
     ko_pep_is_path, ko_pep_oos_path, ko_pep_oos_zero = combined_path(oos["KO_PEP"]["is"]["equity"], oos["KO_PEP"]["oos"]["equity"])
 
     mc = json.load(open(os.path.join(REPORTS, "monte_carlo.json")))
+    s2 = json.load(open(os.path.join(REPORTS, "session2_analysis.json")))
 
     def fan_chart_svg(band, width=640, height=220, pad_l=44, pad_r=8, pad_t=10, pad_b=24):
         all_vals = band["p5"] + band["p95"]
@@ -308,14 +309,13 @@ def main():
 <main>
 
   <header>
-    <span class="eyebrow">Kalman-Filtered Pairs Spread &middot; Phase 0&ndash;4 Results + Follow-up</span>
-    <h1>It failed for a specific, fixable reason &mdash; and the fix holds out-of-sample</h1>
-    <p>Full empirical run of the pipeline in <code>SPEC.md</code>: pair selection, Kalman-filtered
-    hedge ratio, FFT denoising, and a percentile/threshold sweep feeding a realistic-cost
-    backtest. The first pass (below) ruled the naive MLE fit out entirely. A follow-up
-    experiment tests the diagnosed cause directly, and validates the fix on 2022&ndash;2026 data
-    the fit never saw.</p>
-    <div class="verdict good"><span class="dot"></span> Updated verdict: constraining the Kalman fit to a &ge;10-day implied half-life turns both pairs profitable &mdash; Sharpe 1.35 (V/MA) and 1.30 (KO/PEP) in-sample, and it holds on out-of-sample data: 1.35 and 1.38</div>
+    <span class="eyebrow">Kalman-Filtered Pairs Spread &middot; Full Research Log</span>
+    <h1>A small, real, market-neutral edge &mdash; twice validated, twice pruned back</h1>
+    <p>Full empirical run of the pipeline in <code>SPEC.md</code>, plus three rounds of trying to break
+    it: a naive fit that failed outright and was fixed, a 4-pair "improvement" that walk-forward testing
+    then partly retracted, and a leverage/sizing/vs-SPY reality check. What survived all of that is a
+    small, honest, uncorrelated edge on exactly two pairs.</p>
+    <div class="verdict good"><span class="dot"></span> Current verdict: V/MA and KO/PEP only, Sharpe ~1.9, ~4.5%/yr unlevered, validated across two independent out-of-sample periods (2022&ndash;2023 and 2024&ndash;2026) &mdash; not a SPY replacement, a near-zero-correlation diversifier that held up during SPY's three worst drawdowns in this window</div>
   </header>
 
   <section>
@@ -586,6 +586,170 @@ def main():
       approximate: real future regimes (rate environments, sector-specific shocks to V/MA or KO/PEP) are
       not guaranteed to resemble 2015&ndash;2026.</div>
     </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Walk-forward validation: re-testing pair selection itself, not just parameters</h2>
+      <p class="muted">Widened the candidate universe to {s2['walk_forward']['n_candidates_screened']} pairs
+      (added more equity sectors, gold/silver/platinum/palladium, a base-metals proxy, and BTC/ETH &mdash; no
+      liquid pure-play aluminum or tin ETF exists to test those directly). A single static screen found two
+      more promising-looking candidates (KMB/PG, UNP/CSX) with strong single-window OOS results. Before
+      trusting that, re-ran <strong>pair selection itself</strong> &mdash; not just parameter fitting &mdash;
+      across 3 independent, non-overlapping time splits with an expanding training window, each followed by a
+      purely-forward test period selection never touched.</p>
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>fold</th><th>train window</th><th>test window</th><th>pairs passing screen</th></tr></thead>
+        <tbody>
+        {"".join(f'<tr><td>{f["n"]}</td><td>2015&ndash;01&ndash;01 to {f["train_end"]}</td><td>{f["train_end"]} to {f["test_end"]}</td><td>{f["n_candidates_passed"]} / {s2["walk_forward"]["n_candidates_screened"]}</td></tr>' for f in s2['walk_forward']['folds'])}
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:4px">Pairs confirmed across multiple independent folds</h3>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>pair</th><th>fold 2 OOS Sharpe</th><th>fold 3 OOS Sharpe</th><th>verdict</th></tr></thead>
+        <tbody>
+        {"".join(f'<tr><td>{p["pair"]}</td><td class="{"pos" if p["fold2_sharpe"]>=0 else "neg"}">{p["fold2_sharpe"]:.2f}</td><td class="{"pos" if p["fold3_sharpe"]>=0 else "neg"}">{p["fold3_sharpe"]:.2f}</td><td class="{"flag-pass" if "validated" in p["verdict"] else "flag-fail"}">{p["verdict"]}</td></tr>' for p in s2['walk_forward']['multi_fold_survivors'])}
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:4px">Pairs that only ever appeared in one fold</h3>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>pair</th><th>fold</th><th>OOS Sharpe</th><th>verdict</th></tr></thead>
+        <tbody>
+        {"".join(f'<tr><td>{p["pair"]}</td><td>{p["fold"]}</td><td class="{"pos" if p["oos_sharpe"]>=0 else "neg"}">{p["oos_sharpe"]:.2f}</td><td class="flag-fail">{p["verdict"]}</td></tr>' for p in s2['walk_forward']['single_fold_only'])}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout loss">
+      <span class="icon">&#9679;</span>
+      <div class="body"><strong>KMB/PG and UNP/CSX are retracted.</strong> Neither pair was cointegrated when
+      screened using only data through 2019 or through 2021 &mdash; they only appear "cointegrated" once the
+      training window stretches through 2023. That's the signature of picking the best 2 of 36 candidates on
+      one specific window, not a stable relationship. Their strong single-window OOS Sharpe should be treated
+      as a selection-bias artifact, not validated edge.</div>
+    </div>
+
+    <div class="callout warn">
+      <span class="icon">&#9888;</span>
+      <div class="body"><strong>V/MA and KO/PEP got stronger, not weaker.</strong> Both independently cleared
+      the cointegration screen using only 2015&ndash;2021 data, and again using only 2015&ndash;2023 data
+      &mdash; two separate confirmations &mdash; with positive OOS Sharpe both times. <strong>SPY/VOO has the
+      tightest cointegration in the entire 36-pair universe (p&nbsp;&lt;&nbsp;0.02) but Sharpe of &minus;7.75
+      and &minus;5.96 out-of-sample</strong> &mdash; near-perfect cointegration between two funds tracking the
+      same index leaves almost no real signal, just costs and noise. With
+      {s2['walk_forward']['n_candidates_screened']} candidates tested, the Bonferroni-corrected significance
+      threshold is p&nbsp;&lt;&nbsp;{s2['walk_forward']['bonferroni_alpha']:.5f} &mdash; almost nothing
+      survives it. Raw p&lt;0.05 alone is not a reliable filter at this many candidates; repeated appearance
+      across independent folds with consistent-sign OOS performance is what's actually separating signal from
+      noise here.</div>
+    </div>
+
+    <p class="muted" style="font-size:0.85rem"><strong style="color:var(--text)">Validated tradeable book: V/MA
+    and KO/PEP only.</strong> All figures elsewhere in this report use this 2-pair book.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Is this worth it vs. just buying SPY?</h2>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th></th><th>total return ({s2['n_years']:.1f} yrs)</th><th>CAGR</th><th>$1000 becomes</th></tr></thead>
+        <tbody>
+          <tr><td>SPY buy-and-hold</td><td class="pos">+{s2['spy_total_return']*100:.0f}%</td><td class="pos">{s2['spy_cagr']*100:.1f}%/yr</td><td>${s2['spy_final']:,.0f}</td></tr>
+          <tr><td>This strategy (unlevered)</td><td class="pos">+{s2['strat_total_return']*100:.0f}%</td><td>~{s2['strat_total_return']/s2['n_years']*100:.1f}%/yr</td><td>${s2['strat_final']:,.0f}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted" style="font-size:0.85rem">For pure growth, SPY wins by a wide margin. The reason to hold
+    this isn't return &mdash; it's near-zero correlation to the market (r&nbsp;=&nbsp;{s2['correlation']:.3f},
+    beta&nbsp;=&nbsp;{s2['beta']:.3f}), which shows up exactly when it matters:</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>period</th><th>SPY</th><th>this strategy</th></tr></thead>
+        <tbody>
+        {"".join(f'<tr><td>{d["name"]}</td><td class="neg">{d["spy_ret"]*100:+.1f}%</td><td class="{"pos" if d["strat_ret"]>=0 else "neg"}">{d["strat_ret"]*100:+.1f}%</td></tr>' for d in s2['drawdowns'])}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted" style="font-size:0.85rem">While SPY lost a fifth to a third of its value, this strategy
+    was flat to slightly positive every time. The honest use case is a small diversifying allocation
+    <em>alongside</em> market exposure, not a replacement for it.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Leverage: the real lever is financing cost, not risk appetite</h2>
+      <p class="muted">Leveraging an uncorrelated, positive-Sharpe strategy is the correct instinct behind
+      risk-parity and portable-alpha investing. Whether it works here depends almost entirely on what rate you
+      borrow at.</p>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>financing rate</th><th>1x</th><th>2x</th><th>3x</th><th>5x</th></tr></thead>
+        <tbody>
+          <tr><td>Retail margin (~7%/yr)</td>{"".join(f'<td>Sharpe {v[0]:.2f}, {v[1]:.1f}%/yr</td>' for v in s2['leverage_table']['retail_7pct'].values())}</tr>
+          <tr><td>Futures/portfolio margin (~3%/yr)</td>{"".join(f'<td class="pos">Sharpe {v[0]:.2f}, {v[1]:.1f}%/yr</td>' for v in s2['leverage_table']['futures_3pct'].values())}</tr>
+          <tr><td>Institutional repo (~1.5%/yr)</td>{"".join(f'<td class="pos">Sharpe {v[0]:.2f}, {v[1]:.1f}%/yr</td>' for v in s2['leverage_table']['institutional_1_5pct'].values())}</tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout warn">
+      <span class="icon">&#9888;</span>
+      <div class="body">At 7% retail margin, leverage is a bad trade &mdash; financing drag erodes Sharpe
+      faster than it grows return. At 3% or below, leverage is genuinely attractive: 3x at institutional-grade
+      financing reaches ~12%/yr with Sharpe still above 1.6. The catch is access, not math &mdash; retail
+      accounts don't get sub-3% financing; that requires portfolio-margin or futures-based structures that
+      typically need six-figure account equity, or real institutional access. At $1000, leverage is not the
+      available lever; growing the capital base (or the statistical confidence in the edge) is.</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Are we sizing bets optimally? No &mdash; and that's currently the right call</h2>
+    </div>
+    <div class="card-grid">
+      <div class="card">
+        <span class="kicker">Current sizing</span>
+        <div class="stat-row"><span class="k">method</span><span class="v">fixed $500/pair</span></div>
+        <div class="stat-row"><span class="k">weights</span><span class="v">V/MA {s2['sizing']['current_weights']['V_MA']:.0f}% / KO/PEP {s2['sizing']['current_weights']['KO_PEP']:.0f}%</span></div>
+        <div class="stat-row"><span class="k">combined Sharpe</span><span class="v">{s2['sizing']['current_sharpe']:.2f}</span></div>
+        <div class="stat-row"><span class="k">compounds with capital?</span><span class="v neg">no</span></div>
+        <div class="stat-row"><span class="k">scales with signal strength (|z|)?</span><span class="v neg">no</span></div>
+      </div>
+      <div class="card">
+        <span class="kicker">Risk-parity re-weighted (tested)</span>
+        <div class="stat-row"><span class="k">method</span><span class="v">inverse-vol weighted</span></div>
+        <div class="stat-row"><span class="k">weights</span><span class="v">V/MA {s2['sizing']['risk_parity_weights']['V_MA']:.1f}% / KO/PEP {s2['sizing']['risk_parity_weights']['KO_PEP']:.1f}%</span></div>
+        <div class="stat-row"><span class="k">combined Sharpe</span><span class="v">{s2['sizing']['risk_parity_sharpe']:.2f}</span></div>
+        <div class="stat-row"><span class="k">verdict</span><span class="v">barely moves the needle with only 2 similar-quality pairs</span></div>
+      </div>
+    </div>
+    <div class="callout loss">
+      <span class="icon">&#9679;</span>
+      <div class="body"><strong>Full Kelly sizing estimates {s2['sizing']['kelly_full_leverage_estimate']:.0f}x
+      leverage as "optimal" &mdash; that's a warning sign, not a target.</strong> Kelly assumes free borrowing
+      (it ignores the financing table above entirely) and is extremely sensitive to estimation error in the
+      mean return, which is exactly what a small, noisy sample like this one has plenty of &mdash; the
+      walk-forward section above just demonstrated real fragility in what we thought was validated. Sizing
+      bets by a formula that's this sensitive to an uncertain input isn't optimal, it's fragile.</div>
+    </div>
+    <p class="muted" style="font-size:0.85rem">The honestly correct read: current sizing is simple and
+    arbitrary, not derived from any formal optimality criterion &mdash; but given real, just-demonstrated
+    uncertainty in the edge itself, arbitrary-and-conservative is the defensible choice right now. The
+    principled next step (a small, fractional-Kelly, signal-strength-scaled sizing rule) is worth building
+    only after paper trading gives a live, harder-to-overfit estimate of the true edge &mdash; optimizing bet
+    sizing on a still-uncertain edge just compounds the same estimation-error problem Kelly already exposed.</p>
   </section>
 
   <footer>
