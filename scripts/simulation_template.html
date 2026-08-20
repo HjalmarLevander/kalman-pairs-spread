@@ -1,0 +1,623 @@
+<title>Pairs Trading Replay</title>
+<style>
+  :root {
+    --bg: #f9f9f7;
+    --surface: #fcfcfb;
+    --surface-2: #f0efec;
+    --border: rgba(11,11,11,0.10);
+    --text: #0b0b0b;
+    --muted-text: #52514e;
+    --axis: #898781;
+    --grid: #e1e0d9;
+    --series-a: #2a78d6;
+    --series-b: #eb6834;
+    --series-denoised: #1baf7a;
+    --good: #0ca30c;
+    --critical: #d03b3b;
+    --warning: #eda100;
+    --flat: #898781;
+    --mono: "SF Mono", "Menlo", "Consolas", monospace;
+    --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d0d0d;
+      --surface: #1a1a19;
+      --surface-2: #232322;
+      --border: rgba(255,255,255,0.10);
+      --text: #ffffff;
+      --muted-text: #c3c2b7;
+      --axis: #898781;
+      --grid: #2c2c2a;
+      --series-a: #3987e5;
+      --series-b: #d95926;
+      --series-denoised: #199e70;
+      --good: #0ca30c;
+      --critical: #e66767;
+      --warning: #c98500;
+      --flat: #6b6a65;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-2: #232322;
+    --border: rgba(255,255,255,0.10);
+    --text: #ffffff;
+    --muted-text: #c3c2b7;
+    --axis: #898781;
+    --grid: #2c2c2a;
+    --series-a: #3987e5;
+    --series-b: #d95926;
+    --series-denoised: #199e70;
+    --good: #0ca30c;
+    --critical: #e66767;
+    --warning: #c98500;
+    --flat: #6b6a65;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+  body { font-family: var(--sans); line-height: 1.4; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  main { max-width: 1320px; margin: 0 auto; padding: 18px 18px 40px; display: flex; flex-direction: column; gap: 12px; }
+
+  header { display: flex; flex-direction: column; gap: 8px; }
+  header h1 { margin: 0; font-size: 1.15rem; font-weight: 700; text-wrap: balance; }
+  header .subtitle { margin: 0; color: var(--muted-text); font-size: 0.78rem; max-width: 90ch; }
+
+  .controls-bar {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px;
+  }
+  .pair-tabs { display: flex; gap: 6px; }
+  .pair-tab {
+    font-family: var(--mono); font-size: 0.76rem; padding: 5px 11px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--muted-text); cursor: pointer;
+  }
+  .pair-tab.active { background: var(--series-a); color: white; border-color: var(--series-a); }
+  .pair-tab:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--series-a); outline-offset: 2px; }
+
+  .playback-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .icon-btn {
+    width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2);
+    color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.9rem;
+  }
+  .icon-btn:hover { background: var(--border); }
+  .speed-group { display: flex; gap: 4px; }
+  .speed-btn {
+    font-family: var(--mono); font-size: 0.7rem; padding: 4px 8px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--muted-text); cursor: pointer;
+  }
+  .speed-btn.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+  .scrubber-row { display: flex; align-items: center; gap: 10px; }
+  .scrubber-row input[type="range"] { flex: 1; accent-color: var(--series-a); }
+  .date-badge {
+    font-family: var(--mono); font-size: 0.74rem; padding: 3px 9px; border-radius: 6px;
+    background: var(--surface-2); border: 1px solid var(--border); white-space: nowrap;
+  }
+  .phase-badge {
+    font-family: var(--mono); font-size: 0.66rem; padding: 3px 8px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.04em;
+    background: color-mix(in srgb, var(--good) 16%, var(--surface)); color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 40%, var(--border));
+  }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  @media (max-width: 1000px) { .stat-grid { grid-template-columns: repeat(3, 1fr); } }
+  .stat-tile { background: var(--surface); padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .stat-tile .k { font-size: 0.62rem; color: var(--muted-text); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+  .stat-tile .v { font-family: var(--mono); font-size: 0.92rem; font-weight: 600; }
+  .stat-tile .v.small { font-size: 0.78rem; }
+
+  .position-pill { display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; width: fit-content; }
+  .position-pill.long { background: color-mix(in srgb, var(--good) 18%, var(--surface)); color: var(--good); }
+  .position-pill.short { background: color-mix(in srgb, var(--critical) 18%, var(--surface)); color: var(--critical); }
+  .position-pill.flat { background: var(--surface-2); color: var(--muted-text); }
+  .position-pill .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  .decision-flash { font-family: var(--mono); font-size: 0.68rem; padding: 2px 6px; border-radius: 5px; width: fit-content; }
+  .decision-flash.ENTER_LONG { background: color-mix(in srgb, var(--good) 20%, var(--surface)); color: var(--good); }
+  .decision-flash.ENTER_SHORT { background: color-mix(in srgb, var(--critical) 20%, var(--surface)); color: var(--critical); }
+  .decision-flash.EXIT { background: color-mix(in srgb, var(--warning) 20%, var(--surface)); color: var(--warning); }
+  .decision-flash.HOLD, .decision-flash.FLAT { background: var(--surface-2); color: var(--muted-text); }
+
+  .dashboard-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  @media (max-width: 980px) { .dashboard-grid { grid-template-columns: 1fr; } }
+  .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .chart-card.span2 { grid-column: span 2; }
+  @media (max-width: 980px) { .chart-card.span2 { grid-column: span 1; } }
+  .chart-card .chart-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .chart-card h3 { margin: 0; font-size: 0.7rem; font-weight: 600; color: var(--muted-text); text-transform: uppercase; letter-spacing: 0.04em; }
+  .legend { display: flex; gap: 10px; font-size: 0.68rem; color: var(--muted-text); }
+  .legend .swatch { display: inline-block; width: 9px; height: 2px; margin-right: 4px; vertical-align: middle; }
+  .chart-canvas-wrap { position: relative; }
+  canvas { width: 100%; display: block; touch-action: none; }
+  .axis-label { position: absolute; font-family: var(--mono); font-size: 0.62rem; color: var(--axis); pointer-events: none; }
+  .axis-label.top { top: 2px; left: 4px; }
+  .axis-label.bottom { bottom: 2px; left: 4px; }
+
+  .lower-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; }
+  @media (max-width: 760px) { .lower-grid { grid-template-columns: 1fr; } }
+
+  .log-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+  .log-card h3 { margin: 0; font-size: 0.7rem; font-weight: 600; color: var(--muted-text); text-transform: uppercase; letter-spacing: 0.04em; }
+  .log-list { display: flex; flex-direction: column-reverse; gap: 5px; max-height: 150px; overflow-y: auto; font-family: var(--mono); font-size: 0.72rem; }
+  .log-row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 7px; border-radius: 6px; background: var(--surface-2); }
+  .log-row .tag { font-weight: 700; }
+  .log-row.ENTER_LONG .tag { color: var(--good); }
+  .log-row.ENTER_SHORT .tag { color: var(--critical); }
+  .log-row.EXIT .tag { color: var(--warning); }
+
+  .config-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .config-card h3 { margin: 0; font-size: 0.7rem; font-weight: 600; color: var(--muted-text); text-transform: uppercase; letter-spacing: 0.04em; }
+  .config-row { display: flex; justify-content: space-between; font-size: 0.74rem; }
+  .config-row .k { color: var(--muted-text); }
+  .config-row .v { font-family: var(--mono); }
+
+  .no-lookahead-note {
+    font-size: 0.72rem; color: var(--muted-text); border-left: 3px solid var(--series-a); padding: 6px 10px;
+    background: var(--surface-2); border-radius: 0 6px 6px 0;
+  }
+
+  footer { border-top: 1px solid var(--border); padding-top: 12px; font-size: 0.7rem; color: var(--muted-text); }
+</style>
+
+<main>
+  <header>
+    <h1>Pairs Trading Replay Engine</h1>
+    <p class="subtitle">Computed causally, day by day &mdash; every value uses only data available up to that day. Parameters frozen on 2015&ndash;2021 data before this replay window begins.</p>
+  </header>
+
+  <div class="controls-bar">
+    <div class="pair-tabs" id="pairTabs"></div>
+    <span class="phase-badge">LIVE &middot; out-of-sample</span>
+    <div class="playback-controls">
+      <button class="icon-btn" id="restartBtn" title="Restart" aria-label="Restart">&#8634;</button>
+      <button class="icon-btn" id="playBtn" title="Play/Pause" aria-label="Play or pause">&#9654;</button>
+      <div class="speed-group" id="speedGroup"></div>
+      <button class="icon-btn" id="endBtn" title="Jump to end" aria-label="Jump to end">&#9197;</button>
+    </div>
+  </div>
+
+  <div class="scrubber-row">
+    <span class="date-badge mono" id="dateLabel">&mdash;</span>
+    <input type="range" id="scrubber" min="0" max="1" value="0" aria-label="Timeline scrubber">
+    <span class="date-badge mono" id="progressLabel">0 / 0</span>
+  </div>
+
+  <div class="stat-grid" id="statGrid"></div>
+
+  <div class="dashboard-grid">
+    <div class="chart-card span2">
+      <div class="chart-head">
+        <h3>Prices, indexed to 100 at replay start</h3>
+        <div class="legend" id="priceLegend"></div>
+      </div>
+      <div class="chart-canvas-wrap">
+        <canvas id="chartPrice" height="110"></canvas>
+        <span class="axis-label top" id="axPriceTop"></span>
+        <span class="axis-label bottom" id="axPriceBottom"></span>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-head"><h3>Kalman &beta;</h3></div>
+      <div class="chart-canvas-wrap">
+        <canvas id="chartBeta" height="110"></canvas>
+        <span class="axis-label top" id="axBetaTop"></span>
+        <span class="axis-label bottom" id="axBetaBottom"></span>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-head">
+        <h3>Spread: raw vs. denoised</h3>
+        <div class="legend">
+          <span><span class="swatch" style="background:var(--muted-text)"></span>raw</span>
+          <span><span class="swatch" style="background:var(--series-denoised)"></span>denoised</span>
+        </div>
+      </div>
+      <div class="chart-canvas-wrap">
+        <canvas id="chartSpread" height="110"></canvas>
+        <span class="axis-label top" id="axSpreadTop"></span>
+        <span class="axis-label bottom" id="axSpreadBottom"></span>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-head"><h3>Z-score &amp; thresholds</h3></div>
+      <div class="chart-canvas-wrap">
+        <canvas id="chartZ" height="110"></canvas>
+        <span class="axis-label top" id="axZTop"></span>
+        <span class="axis-label bottom" id="axZBottom"></span>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-head"><h3>Cumulative P&amp;L</h3></div>
+      <div class="chart-canvas-wrap">
+        <canvas id="chartPnl" height="110"></canvas>
+        <span class="axis-label top" id="axPnlTop"></span>
+        <span class="axis-label bottom" id="axPnlBottom"></span>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-head"><h3>Position over time</h3></div>
+      <div class="chart-canvas-wrap">
+        <canvas id="chartPosition" height="110"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="lower-grid">
+    <div class="log-card">
+      <h3>Decision log</h3>
+      <div class="log-list" id="logList"></div>
+    </div>
+    <div class="config-card">
+      <h3>Frozen configuration</h3>
+      <div id="configRows"></div>
+      <div class="no-lookahead-note">Parameters fit on 2015&ndash;2021 only. This entire replay window (2022&ndash;2026) was never seen during fitting or pair selection.</div>
+    </div>
+  </div>
+
+  <footer>Precomputed from <code>reports/simulation_log.json</code> by <code>scripts/build_simulation_log.py</code> &mdash; a deterministic causal replay, not a live market feed. Axis scales are fixed to each chart's full-window range so playback reveals the line within a stable frame rather than rescaling every tick.</footer>
+</main>
+
+<script>
+const DATA = __DATA_JSON__;
+
+const state = {
+  pair: "V_MA",
+  index: 0,
+  playing: false,
+  speed: 5,
+  lastTick: 0,
+};
+
+const els = {
+  pairTabs: document.getElementById("pairTabs"),
+  speedGroup: document.getElementById("speedGroup"),
+  playBtn: document.getElementById("playBtn"),
+  restartBtn: document.getElementById("restartBtn"),
+  endBtn: document.getElementById("endBtn"),
+  scrubber: document.getElementById("scrubber"),
+  dateLabel: document.getElementById("dateLabel"),
+  progressLabel: document.getElementById("progressLabel"),
+  statGrid: document.getElementById("statGrid"),
+  logList: document.getElementById("logList"),
+  configRows: document.getElementById("configRows"),
+  priceLegend: document.getElementById("priceLegend"),
+};
+
+const SPEEDS = [1, 5, 20, 100];
+
+// per-pair precomputed series + FIXED axis bounds (computed once over the
+// full window, not the partially-revealed slice) so playback doesn't
+// rescale every tick -- that was the "weird scaling" bug.
+const seriesCache = {};
+function buildSeriesCache() {
+  Object.keys(DATA).forEach(key => {
+    const rows = DATA[key].rows;
+    const refA = rows.find(r => r.price_a != null)?.price_a ?? 1;
+    const refB = rows.find(r => r.price_b != null)?.price_b ?? 1;
+    const priceA = rows.map(r => r.price_a == null ? null : (r.price_a / refA) * 100);
+    const priceB = rows.map(r => r.price_b == null ? null : (r.price_b / refB) * 100);
+    const beta = rows.map(r => r.beta);
+    const spreadRaw = rows.map(r => r.spread);
+    const spreadDen = rows.map(r => r.spread_denoised);
+    const z = rows.map(r => r.zscore);
+    const pnl = rows.map(r => r.cum_pnl);
+    const position = rows.map(r => r.position);
+
+    const bounds = arrs => {
+      const vals = arrs.flat().filter(v => v !== null && v !== undefined && !isNaN(v));
+      let lo = Math.min(...vals), hi = Math.max(...vals);
+      if (lo === hi) { lo -= 1; hi += 1; }
+      const pad = (hi - lo) * 0.08;
+      return [lo - pad, hi + pad];
+    };
+    const zEntry = DATA[key].z_entry, zExit = DATA[key].z_exit;
+
+    seriesCache[key] = {
+      priceA, priceB, beta, spreadRaw, spreadDen, z, pnl, position,
+      boundsPrice: bounds([priceA, priceB]),
+      boundsBeta: bounds([beta]),
+      boundsSpread: bounds([spreadRaw, spreadDen, [0]]),
+      boundsZ: bounds([z, [0, zEntry, -zEntry, zExit, -zExit]]),
+      boundsPnl: bounds([pnl, [0]]),
+    };
+  });
+}
+
+function buildTabs() {
+  els.pairTabs.innerHTML = "";
+  Object.keys(DATA).forEach(key => {
+    const btn = document.createElement("button");
+    btn.className = "pair-tab" + (key === state.pair ? " active" : "");
+    btn.textContent = DATA[key].label;
+    btn.onclick = () => { state.pair = key; state.index = 0; syncAll(); };
+    els.pairTabs.appendChild(btn);
+  });
+}
+
+function buildSpeedButtons() {
+  els.speedGroup.innerHTML = "";
+  SPEEDS.forEach(s => {
+    const btn = document.createElement("button");
+    btn.className = "speed-btn" + (s === state.speed ? " active" : "");
+    btn.textContent = s + "x";
+    btn.onclick = () => {
+      state.speed = s;
+      [...els.speedGroup.children].forEach(c => c.classList.remove("active"));
+      btn.classList.add("active");
+    };
+    els.speedGroup.appendChild(btn);
+  });
+}
+
+function currentSeries() { return DATA[state.pair]; }
+function currentRows() { return currentSeries().rows; }
+function currentCache() { return seriesCache[state.pair]; }
+
+function fmtMoney(v) { return (v >= 0 ? "+$" : "-$") + Math.abs(v).toFixed(2); }
+function fmtNum(v, d=3) { return v === null || v === undefined ? "—" : v.toFixed(d); }
+
+function positionLabel(p) { return p === 1 ? "LONG SPREAD" : p === -1 ? "SHORT SPREAD" : "FLAT"; }
+function positionClass(p) { return p === 1 ? "long" : p === -1 ? "short" : "flat"; }
+
+function renderStats() {
+  const rows = currentRows();
+  const row = rows[state.index];
+  const s = currentSeries();
+  els.statGrid.innerHTML = `
+    <div class="stat-tile"><span class="k">${s.ticker_a}</span><span class="v mono">$${fmtNum(row.price_a,2)}</span></div>
+    <div class="stat-tile"><span class="k">${s.ticker_b}</span><span class="v mono">$${fmtNum(row.price_b,2)}</span></div>
+    <div class="stat-tile"><span class="k">Beta</span><span class="v mono">${fmtNum(row.beta,4)}</span></div>
+    <div class="stat-tile"><span class="k">Spread (denoised)</span><span class="v mono small">${fmtNum(row.spread_denoised,3)}</span></div>
+    <div class="stat-tile"><span class="k">Z-score</span><span class="v mono">${fmtNum(row.zscore,2)}</span></div>
+    <div class="stat-tile">
+      <span class="k">Position</span>
+      <span class="position-pill ${positionClass(row.position)}"><span class="dot"></span>${positionLabel(row.position)}</span>
+    </div>
+    <div class="stat-tile">
+      <span class="k">Today's decision</span>
+      <span class="decision-flash ${row.decision}">${row.decision.replace('_',' ')}</span>
+    </div>
+    <div class="stat-tile"><span class="k">Daily P&amp;L</span><span class="v mono" style="color:${row.daily_pnl>=0?'var(--good)':'var(--critical)'}">${fmtMoney(row.daily_pnl)}</span></div>
+    <div class="stat-tile"><span class="k">Cumulative P&amp;L</span><span class="v mono" style="color:${row.cum_pnl>=0?'var(--good)':'var(--critical)'}">${fmtMoney(row.cum_pnl)}</span></div>
+  `;
+}
+
+function renderConfig() {
+  const s = currentSeries();
+  els.configRows.innerHTML = `
+    <div class="config-row"><span class="k">Pair</span><span class="v">${s.label}</span></div>
+    <div class="config-row"><span class="k">delta (process noise)</span><span class="v">${s.delta}</span></div>
+    <div class="config-row"><span class="k">obs_cov (observation noise)</span><span class="v">${s.obs_cov}</span></div>
+    <div class="config-row"><span class="k">Train half-life</span><span class="v">${s.train_half_life}d</span></div>
+    <div class="config-row"><span class="k">FFT percentile</span><span class="v">p${s.percentile}</span></div>
+    <div class="config-row"><span class="k">z_entry / z_exit</span><span class="v">${s.z_entry} / ${s.z_exit}</span></div>
+    <div class="config-row"><span class="k">Live trades so far</span><span class="v">${currentRows().slice(0, state.index+1).filter(r=>r.decision==="ENTER_LONG"||r.decision==="ENTER_SHORT").length}</span></div>
+  `;
+  els.priceLegend.innerHTML = `<span><span class="swatch" style="background:var(--series-a)"></span>${s.ticker_a}</span><span><span class="swatch" style="background:var(--series-b)"></span>${s.ticker_b}</span>`;
+}
+
+function resetLog() { els.logList.innerHTML = ""; }
+function maybeLogDecision() {
+  const row = currentRows()[state.index];
+  if (row.decision === "ENTER_LONG" || row.decision === "ENTER_SHORT" || row.decision === "EXIT") {
+    const div = document.createElement("div");
+    div.className = "log-row " + row.decision;
+    div.innerHTML = `<span>${row.date}</span><span class="tag">${row.decision.replace('_',' ')}</span><span>z=${fmtNum(row.zscore,2)}</span>`;
+    els.logList.appendChild(div);
+    if (els.logList.children.length > 60) els.logList.removeChild(els.logList.firstChild);
+  }
+}
+function rebuildLogUpTo(idx) {
+  resetLog();
+  const rows = currentRows();
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i <= idx; i++) {
+    const row = rows[i];
+    if (row.decision === "ENTER_LONG" || row.decision === "ENTER_SHORT" || row.decision === "EXIT") {
+      const div = document.createElement("div");
+      div.className = "log-row " + row.decision;
+      div.innerHTML = `<span>${row.date}</span><span class="tag">${row.decision.replace('_',' ')}</span><span>z=${fmtNum(row.zscore,2)}</span>`;
+      frag.appendChild(div);
+    }
+  }
+  els.logList.appendChild(frag);
+  els.logList.scrollTop = els.logList.scrollHeight;
+}
+
+// ---- canvas line chart engine, FIXED axis bounds (no per-frame rescale) ----
+function setupCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const cssHeight = parseInt(canvas.getAttribute("height"), 10) || 100;
+  const cssWidth = Math.max(rect.width, 200);
+  canvas.width = cssWidth * dpr;
+  canvas.height = cssHeight * dpr;
+  canvas.style.height = cssHeight + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w: cssWidth, h: cssHeight };
+}
+
+function drawLineChart(canvas, series, bounds, opts) {
+  const { ctx, w, h } = setupCanvas(canvas);
+  const padL = 4, padR = 4, padT = 4, padB = 4;
+  const plotW = w - padL - padR, plotH = h - padT - padB;
+  ctx.clearRect(0, 0, w, h);
+
+  const styles = getComputedStyle(document.documentElement);
+  const gridColor = styles.getPropertyValue("--grid").trim();
+  const axisColor = styles.getPropertyValue("--axis").trim();
+
+  const [lo, hi] = bounds;
+  const span = hi - lo || 1;
+  const total = series[0].data.length;
+  const upTo = state.index + 1;
+
+  const x = i => padL + plotW * (i / Math.max(total - 1, 1));
+  const y = v => padT + plotH * (1 - (v - lo) / span);
+
+  if (opts.zeroLine && lo <= 0 && hi >= 0) {
+    ctx.strokeStyle = gridColor; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(padL, y(0)); ctx.lineTo(w - padR, y(0)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (opts.extraLines) {
+    ctx.strokeStyle = axisColor; ctx.lineWidth = 1; ctx.setLineDash([2, 4]);
+    opts.extraLines.forEach(v => { if (v >= lo && v <= hi) { ctx.beginPath(); ctx.moveTo(padL, y(v)); ctx.lineTo(w - padR, y(v)); ctx.stroke(); } });
+    ctx.setLineDash([]);
+  }
+
+  series.forEach(s => {
+    ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 1.6; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < upTo; i++) {
+      const v = s.data[i];
+      if (v === null || v === undefined) { started = false; continue; }
+      if (!started) { ctx.moveTo(x(i), y(v)); started = true; } else { ctx.lineTo(x(i), y(v)); }
+    }
+    ctx.stroke();
+
+    if (upTo > 0 && s.data[upTo-1] !== null && s.data[upTo-1] !== undefined) {
+      ctx.fillStyle = s.color;
+      ctx.beginPath();
+      ctx.arc(x(upTo-1), y(s.data[upTo-1]), 2.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
+  // future (not-yet-revealed) region, subtly dimmed, so the fixed frame reads as a timeline
+  if (upTo < total) {
+    ctx.fillStyle = "rgba(128,128,128,0.06)";
+    ctx.fillRect(x(upTo - 1), 0, w - x(upTo - 1), h);
+  }
+}
+
+function drawPositionStrip(canvas, positions) {
+  const { ctx, w, h } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const styles = getComputedStyle(document.documentElement);
+  const good = styles.getPropertyValue("--good").trim();
+  const critical = styles.getPropertyValue("--critical").trim();
+  const flatColor = styles.getPropertyValue("--flat").trim();
+  const total = positions.length;
+  const upTo = state.index + 1;
+  const barW = w / total;
+  for (let i = 0; i < upTo; i++) {
+    const p = positions[i];
+    ctx.fillStyle = p === 1 ? good : p === -1 ? critical : flatColor;
+    ctx.globalAlpha = p === 0 ? 0.25 : 0.85;
+    ctx.fillRect(i * barW, h * 0.3, Math.max(barW, 1), h * 0.4);
+  }
+  ctx.globalAlpha = 1;
+  if (upTo < total) {
+    ctx.fillStyle = "rgba(128,128,128,0.06)";
+    ctx.fillRect(upTo * barW, 0, w - upTo * barW, h);
+  }
+}
+
+function setAxisLabels(prefix, hi, lo, fmt) {
+  const top = document.getElementById(prefix + "Top");
+  const bottom = document.getElementById(prefix + "Bottom");
+  if (top) top.textContent = fmt(hi);
+  if (bottom) bottom.textContent = fmt(lo);
+}
+
+function renderCharts() {
+  const s = currentSeries();
+  const c = currentCache();
+  const stylesRoot = getComputedStyle(document.documentElement);
+  const cA = stylesRoot.getPropertyValue("--series-a").trim();
+  const cB = stylesRoot.getPropertyValue("--series-b").trim();
+  const cDen = stylesRoot.getPropertyValue("--series-denoised").trim();
+  const cMuted = stylesRoot.getPropertyValue("--muted-text").trim();
+  const lastPnl = c.pnl[state.index];
+  const cPnl = lastPnl >= 0 ? stylesRoot.getPropertyValue("--good").trim() : stylesRoot.getPropertyValue("--critical").trim();
+
+  drawLineChart(document.getElementById("chartPrice"), [
+    { data: c.priceA, color: cA }, { data: c.priceB, color: cB },
+  ], c.boundsPrice, {});
+  setAxisLabels("axPrice", c.boundsPrice[1], c.boundsPrice[0], v => v.toFixed(0));
+
+  drawLineChart(document.getElementById("chartBeta"), [ { data: c.beta, color: cA } ], c.boundsBeta, {});
+  setAxisLabels("axBeta", c.boundsBeta[1], c.boundsBeta[0], v => v.toFixed(2));
+
+  drawLineChart(document.getElementById("chartSpread"), [
+    { data: c.spreadRaw, color: cMuted, width: 1 }, { data: c.spreadDen, color: cDen, width: 1.8 },
+  ], c.boundsSpread, { zeroLine: true });
+  setAxisLabels("axSpread", c.boundsSpread[1], c.boundsSpread[0], v => v.toFixed(1));
+
+  drawLineChart(document.getElementById("chartZ"), [ { data: c.z, color: cA } ], c.boundsZ, {
+    zeroLine: true, extraLines: [s.z_entry, -s.z_entry, s.z_exit, -s.z_exit],
+  });
+  setAxisLabels("axZ", c.boundsZ[1], c.boundsZ[0], v => v.toFixed(1));
+
+  drawLineChart(document.getElementById("chartPnl"), [ { data: c.pnl, color: cPnl } ], c.boundsPnl, { zeroLine: true });
+  setAxisLabels("axPnl", c.boundsPnl[1], c.boundsPnl[0], v => "$" + v.toFixed(0));
+
+  drawPositionStrip(document.getElementById("chartPosition"), c.position);
+}
+
+function syncAll() {
+  buildTabs();
+  const rows = currentRows();
+  els.scrubber.max = rows.length - 1;
+  els.scrubber.value = state.index;
+  els.dateLabel.textContent = rows[state.index].date;
+  els.progressLabel.textContent = `${state.index + 1} / ${rows.length}`;
+  renderStats();
+  renderConfig();
+  renderCharts();
+  rebuildLogUpTo(state.index);
+}
+
+function tick(ts) {
+  if (state.playing) {
+    if (!state.lastTick) state.lastTick = ts;
+    const stepsPerSec = state.speed;
+    const msPerStep = 1000 / stepsPerSec;
+    if (ts - state.lastTick >= msPerStep) {
+      const steps = Math.floor((ts - state.lastTick) / msPerStep);
+      state.lastTick = ts;
+      const rows = currentRows();
+      for (let k = 0; k < steps && state.index < rows.length - 1; k++) {
+        state.index++;
+        maybeLogDecision();
+      }
+      if (state.index >= rows.length - 1) { state.playing = false; els.playBtn.innerHTML = "&#9654;"; }
+      els.scrubber.value = state.index;
+      els.dateLabel.textContent = rows[state.index].date;
+      els.progressLabel.textContent = `${state.index + 1} / ${rows.length}`;
+      renderStats();
+      renderCharts();
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+els.playBtn.onclick = () => {
+  state.playing = !state.playing;
+  state.lastTick = 0;
+  els.playBtn.innerHTML = state.playing ? "&#10074;&#10074;" : "&#9654;";
+};
+els.restartBtn.onclick = () => { state.index = 0; state.playing = false; els.playBtn.innerHTML = "&#9654;"; syncAll(); };
+els.endBtn.onclick = () => { state.index = currentRows().length - 1; state.playing = false; els.playBtn.innerHTML = "&#9654;"; syncAll(); };
+els.scrubber.oninput = () => {
+  state.index = parseInt(els.scrubber.value, 10); state.playing = false; els.playBtn.innerHTML = "&#9654;";
+  renderStats(); renderConfig(); renderCharts(); rebuildLogUpTo(state.index);
+  els.dateLabel.textContent = currentRows()[state.index].date;
+  els.progressLabel.textContent = `${state.index+1} / ${currentRows().length}`;
+};
+
+let resizeTimer;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(renderCharts, 100); });
+
+buildSeriesCache();
+buildSpeedButtons();
+syncAll();
+requestAnimationFrame(tick);
+</script>
