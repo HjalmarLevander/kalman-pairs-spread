@@ -125,15 +125,17 @@
   .dashboard-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   @media (max-width: 980px) { .dashboard-grid { grid-template-columns: 1fr; } }
   .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; height: 158px; }
-  .chart-card .chart-head { flex: 0 0 auto; }
   .chart-card.span2 { grid-column: span 2; }
   @media (max-width: 980px) { .chart-card.span2 { grid-column: span 1; } }
-  .chart-card .chart-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-  .chart-card h3 { margin: 0; font-size: 0.7rem; font-weight: 600; color: var(--muted-text); text-transform: uppercase; letter-spacing: 0.04em; }
-  .legend { display: flex; gap: 10px; font-size: 0.68rem; color: var(--muted-text); }
+  .chart-card .chart-head {
+    flex: 0 0 18px; height: 18px; overflow: hidden;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: nowrap;
+  }
+  .chart-card h3 { margin: 0; font-size: 0.7rem; font-weight: 600; color: var(--muted-text); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .legend { display: flex; gap: 10px; font-size: 0.68rem; color: var(--muted-text); white-space: nowrap; flex: 0 0 auto; }
   .legend .swatch { display: inline-block; width: 9px; height: 2px; margin-right: 4px; vertical-align: middle; }
-  .chart-canvas-wrap { position: relative; height: 110px; overflow: hidden; }
-  canvas { width: 100%; display: block; touch-action: none; }
+  .chart-canvas-wrap { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  canvas { width: 100%; height: 100%; display: block; touch-action: none; }
   .axis-label { position: absolute; font-family: var(--mono); font-size: 0.62rem; color: var(--axis); pointer-events: none; }
   .axis-label.top { top: 2px; left: 4px; }
   .axis-label.bottom { bottom: 2px; left: 4px; }
@@ -432,12 +434,17 @@ function rebuildLogUpTo(idx) {
 // ---- canvas line chart engine, FIXED axis bounds (no per-frame rescale) ----
 function setupCanvas(canvas) {
   const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.getBoundingClientRect();
-  const cssHeight = parseInt(canvas.getAttribute("height"), 10) || 100;
+  // Canvas is CSS-sized (width:100%; height:100%) to exactly fill its flex
+  // wrapper, so the wrapper's own rendered size -- not the static HTML
+  // "height" attribute -- is the source of truth. Reading the attribute
+  // instead caused a mismatch whenever the header wrapped and shrank the
+  // wrapper's real space, clipping the canvas via the wrapper's overflow:hidden.
+  const wrapper = canvas.parentElement;
+  const rect = wrapper.getBoundingClientRect();
   const cssWidth = Math.max(rect.width, 200);
+  const cssHeight = Math.max(rect.height, 40);
   canvas.width = cssWidth * dpr;
   canvas.height = cssHeight * dpr;
-  canvas.style.height = cssHeight + "px";
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   return { ctx, w: cssWidth, h: cssHeight };
