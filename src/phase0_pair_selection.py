@@ -69,6 +69,31 @@ CANDIDATE_PAIRS: list[tuple[str, str]] = [
     ("PALL", "PPLT"),    # palladium vs. platinum (both auto-catalyst metals)
     ("DBB", "CPER"),     # broad base-metals ETF vs. copper (aluminum/tin proxy, not a true pair)
     ("BTC-USD", "ETH-USD"),  # crypto majors
+    # second widening -- more sectors not yet covered, to find independent
+    # candidates for the walk-forward bar rather than mine the same pool harder
+    ("DAL", "UAL"),   # airlines
+    ("DAL", "AAL"),   # airlines (2nd pair)
+    ("LUV", "JBLU"),  # airlines (low-cost)
+    ("AMAT", "LRCX"), # semiconductor equipment
+    ("ALL", "PGR"),   # auto insurance
+    ("TRV", "CB"),    # property & casualty insurance
+    ("MO", "PM"),     # tobacco (same company pre/post 2008 spinoff)
+    ("HON", "MMM"),   # diversified industrials
+    ("TJX", "ROST"),  # off-price apparel retail
+    ("BLK", "TROW"),  # asset managers
+    ("COF", "DFS"),   # consumer credit/card issuers
+    ("AXP", "COF"),   # consumer credit (2nd pair)
+    ("DHI", "LEN"),   # homebuilders
+    ("PHM", "LEN"),   # homebuilders (2nd pair)
+    ("IP", "WY"),     # paper & forest products
+    ("DD", "LYB"),    # chemicals
+    ("LIN", "APD"),   # industrial gases
+    ("DIS", "CMCSA"), # diversified media
+    ("KR", "SYY"),    # food distribution/retail
+    ("XLF", "KRE"),   # financials sector vs. regional banks
+    ("XLI", "XLB"),   # industrials vs. materials sector ETFs
+    ("IWM", "MDY"),   # small-cap vs. mid-cap index ETFs
+    ("EFA", "VEA"),   # developed-markets ex-US ETFs (near-duplicate, same family as SPY/VOO)
 ]
 
 # No-lookahead boundary. Every fetch in this module is clipped to this

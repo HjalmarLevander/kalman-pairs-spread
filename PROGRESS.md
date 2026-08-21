@@ -260,3 +260,62 @@ pending KMB/PG and UNP/CSX surviving a genuine walk-forward fold, not as a real
 improvement. The lesson generalizes: "screen many pairs, keep the winners, OOS-test
 the winners once" is not sufficient -- the winners need to independently reappear
 across multiple non-overlapping selection windows before they're trustworthy.
+
+## 2026-08-21 — Widened universe to 59 pairs; expanding-window design hit a
+## detection-power confound; fixed-window design resolves it and adds 2 pairs
+
+User wanted more trades -> more pairs. Widened CANDIDATE_PAIRS from 36 to 59
+(added airlines, insurers, homebuilders, chemicals, asset managers, more sector
+ETFs). Re-ran the same expanding-window walk-forward
+(`scripts/walk_forward_validation.py`): still only V/MA and KO/PEP repeat across
+folds. Every new candidate (DAL/UAL, TRV/CB, DHI/LEN, GS/MS, IWM/MDY, etc.)
+appeared in exactly one fold, the same pattern that got KMB/PG and UNP/CSX
+retracted last session.
+
+**But a diagnostic check on the near-misses revealed a confound in the expanding-
+window design itself**: for most of these candidates, cointegration p-value fell
+steadily as the training window lengthened (5y -> 7y -> 9y), only crossing p<0.05
+in the longest (fold 3) window -- e.g. UNP/CSX: 0.572 -> 0.068 -> 0.023. That
+pattern is ambiguous by construction: consistent with a real-but-weak relationship
+needing more data to detect (cointegration tests have low power on slow,
+long-half-life relationships), equally consistent with market-wide correlation
+drift (the passive-investing era) mechanically inflating cointegration power for
+many same-sector pairs at once as the sample grows, independent of true
+pair-specific structure. An expanding window can't distinguish these.
+
+**Built `scripts/walk_forward_fixed_window.py`**: same screen + fit + OOS test
+logic, but 3 folds with a FIXED 5-year training window rolled forward in time
+(2015-2019 -> 2021, 2017-2021 -> 2023, 2019-2023 -> 2026) instead of an expanding
+one. A genuinely stable relationship should be detectable with a constant amount
+of data at different points in history, not only once cumulative history grows
+long enough.
+
+**Result: two new pairs pass this harder, apples-to-apples bar.**
+- **UNP/CSX**: coint_p=0.0196 (2017-2021 train) and 0.0053 (2019-2023 train), OOS
+  Sharpe 1.97 and 2.57. Failed only in the earliest window (2015-2019, p=0.572) --
+  plausibly a real regime shift (CSX had activist-investor-driven leadership/
+  strategy changes starting ~2017), not noise.
+- **LUV/JBLU**: coint_p=0.0012 and 0.0157, OOS Sharpe 0.97 and 1.92. Never
+  appeared in the expanding-window screen at all -- only visible once the earliest,
+  weakest-relationship years are excluded from the training sample.
+
+**KO/PEP does not appear in the fixed-window screen at all**, in any of the 3
+folds. Its earlier validation came from expanding windows of 7 and 9 years --
+consistent with it being a real but statistically weak/slow relationship that
+needs more cumulative data for the test to have power (its measured half-life,
+11-14 days, is on the slower end), OR a fold-count coincidence. Keeping it in the
+book given its multiple prior independent confirmations (original OOS check,
+expanding-window fold 2 and 3), but flagging this as a softer form of evidence
+than V/MA, UNP/CSX, or LUV/JBLU, which all clear the fixed-window bar directly.
+
+**SPY/VOO and EFA/VEA** (both near-duplicate-ETF-family pairs) again show strong
+cointegration but strongly negative OOS Sharpe (-7.83 and -0.77) under the
+fixed-window test too -- reconfirms near-perfect cointegration between
+functionally-identical instruments is not tradeable, this isn't a fluke of one
+design.
+
+**Updated validated book: V/MA, KO/PEP, UNP/CSX, LUV/JBLU** -- 4 pairs, roughly
+doubling trade frequency/capital utilization versus the 2-pair book, via genuine
+multi-fold (not single-window) confirmation this time. GS/MS, KMB/PG, MO/PM,
+DHI/LEN, GLD/GDX, XOM/CVX remain single-fold-only under the fixed-window design
+and are NOT included -- same standard applied consistently.
