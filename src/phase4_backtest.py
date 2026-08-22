@@ -69,6 +69,8 @@ def backtest(
     transaction_cost_bps: float = DEFAULT_TRANSACTION_COST_BPS,
     max_holding_days: int = DEFAULT_MAX_HOLDING_DAYS,
     notional: pd.Series | None = None,
+    stop_loss_z: float | None = None,
+    size_multiplier: pd.Series | None = None,
 ) -> BacktestResult:
     """Z-score entry/exit backtest, one unit of spread notional per trade
     (position sizing in real dollars belongs to a portfolio layer above
@@ -81,6 +83,17 @@ def backtest(
     real costs, since spread_t = Y_t - beta_t*X_t is a small residual, not
     a traded amount -- charging bps against it prices trading at
     ~1000x cheaper than reality and inflates Sharpe accordingly.
+
+    `stop_loss_z` (optional): force an exit if the z-score moves this many
+    additional units past the entry z-score in the adverse direction (i.e.
+    the position keeps getting worse instead of reverting). None disables it
+    -- the default behavior relies only on max_holding_days as a time-based
+    stop, with no price-based cut.
+
+    `size_multiplier` (optional): per-day multiplier on daily PnL and cost,
+    keyed by date. Used to test signal-proportional sizing (bet size scaled
+    by entry conviction) without changing the entry/exit logic itself. None
+    means constant 1x sizing throughout, matching every earlier backtest.
     """
     z = rolling_zscore(spread_denoised, zscore_window)
     spread = spread_denoised
@@ -92,6 +105,8 @@ def backtest(
     entry_date = None
     entry_day_idx = None
     entry_cost = 0.0
+    entry_z = None
+    size_mult = 1.0
 
     daily_pnl = pd.Series(0.0, index=spread.index)
     trades: list[Trade] = []
@@ -108,35 +123,50 @@ def backtest(
             continue
 
         if position != 0:
-            daily_pnl.loc[today] = position * (spread.loc[today] - spread.loc[yesterday])
+            daily_pnl.loc[today] = size_mult * position * (spread.loc[today] - spread.loc[yesterday])
 
         zt = z.loc[today]
         held_days = (i - entry_day_idx) if entry_day_idx is not None else 0
+
+        # stopped_out: position=-1 (short, entered because z was high) gets
+        # worse if z rises further past entry_z + stop_loss_z; position=+1
+        # (long) gets worse if z falls further past entry_z - stop_loss_z.
+        stopped_out = (
+            stop_loss_z is not None and position != 0 and entry_z is not None and (
+                (position == -1 and zt >= entry_z + stop_loss_z)
+                or (position == 1 and zt <= entry_z - stop_loss_z)
+            )
+        )
 
         should_exit = position != 0 and (
             abs(zt) <= z_exit
             or np.sign(zt) == position  # z crossed through zero past our entry side
             or held_days >= max_holding_days
+            or stopped_out
         )
         if should_exit:
             exit_notional = notional.loc[today] if today in notional.index and not pd.isna(notional.loc[today]) else abs(spread.loc[today])
-            cost = cost_frac * exit_notional
+            cost = size_mult * cost_frac * exit_notional
             daily_pnl.loc[today] -= cost
-            trade_pnl = position * (spread.loc[today] - entry_price) - entry_cost - cost
+            trade_pnl = size_mult * position * (spread.loc[today] - entry_price) - entry_cost - cost
             trades.append(Trade(entry_date, today, position, float(trade_pnl), i - entry_day_idx))
             position = 0
             entry_price = None
             entry_date = None
             entry_day_idx = None
             entry_cost = 0.0
+            entry_z = None
+            size_mult = 1.0
 
         elif position == 0 and abs(zt) >= z_entry:
             position = -1 if zt > 0 else 1  # spread too high -> short it; too low -> long it
             entry_price = spread.loc[today]
             entry_date = today
             entry_day_idx = i
+            entry_z = zt
+            size_mult = float(size_multiplier.loc[today]) if size_multiplier is not None and today in size_multiplier.index else 1.0
             entry_notional = notional.loc[today] if today in notional.index and not pd.isna(notional.loc[today]) else abs(entry_price)
-            entry_cost = cost_frac * entry_notional
+            entry_cost = size_mult * cost_frac * entry_notional
             daily_pnl.loc[today] -= entry_cost
 
     equity_curve = daily_pnl.cumsum() + 1.0  # start at 1.0 "unit" of capital

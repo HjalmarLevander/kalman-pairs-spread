@@ -59,6 +59,40 @@ this logs what the strategy *would* do.
    not, treat this as the paper-trading phase doing its job — catching a
    backtest/live gap before money was ever at risk.
 
+## v2: a parallel enhancement track (added 2026-08-22, does not touch v1)
+
+After the protocol above was frozen, two enhancements were tested empirically
+on the 2024-2026 out-of-sample window:
+
+- **Stop-loss (rejected).** Exiting early when the z-score moved further
+  adverse than entry made things *worse*, not better (V/MA worst trade
+  -$1.63 -> -$4.07; LUV/JBLU -$4.89 -> -$23.67). Mechanism: an early exit
+  often still leaves the z-score past the entry threshold, so the strategy
+  immediately re-enters the same losing bet and gets stopped out again,
+  repeatedly, during genuine trending (non-reverting) stretches -- turning
+  one absorbed loss into a whipsawed series of smaller ones that costs more
+  in aggregate. Not used anywhere in this project.
+- **Signal-proportional sizing + compounding (adopted, as v2 only).** Size
+  each new trade up to 2x based on how far past the entry threshold the
+  z-score is (capped, not unlimited), and size off *current* running capital
+  per pair rather than a fixed $250 forever. Tested on 2024-2026 OOS data:
+  total P&L up 19-45% across all four pairs with Sharpe roughly flat.
+
+**Why this is a separate v2 track, not a v1 edit**: the proportional-sizing
+result was only checked on the same OOS window already used to evaluate
+everything else in this project -- it has not had its own independent
+out-of-sample confirmation the way the pair-selection and half-life-floor
+work did. Editing v1 to include it now would repeat exactly the mistake this
+protocol exists to prevent (retuning after seeing a promising result on the
+same data used to evaluate it). Instead, v2 runs forward from the same start
+date as v1, with its own capital ($1000, same split), so paper trading itself
+becomes the fresh evaluation: if v2 doesn't beat v1 live, that's real evidence
+sizing tricks that look good in backtests don't always survive contact with
+new data -- the same lesson KMB/PG and UNP/CSX's first appearance already
+taught once.
+
+v1 remains the primary evaluation subject and its rules above are unchanged.
+
 ## Running it
 
 ```sh

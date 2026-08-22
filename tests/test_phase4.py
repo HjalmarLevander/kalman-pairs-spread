@@ -75,3 +75,30 @@ def test_split_metrics_by_regime_returns_finite_or_nan(rng):
     mask = regime_split_dates(fake_returns)
     metrics = split_metrics_by_regime(result.daily_pnl, mask)
     assert metrics["n_extreme_days"] + metrics["n_normal_days"] == len(result.daily_pnl)
+
+
+def test_stop_loss_caps_worst_case_trade_pnl(rng):
+    """A trending (non-reverting) series should produce a much smaller worst
+    trade with a tight stop-loss than without one -- that's the entire point
+    of a stop-loss, so this should hold by construction."""
+    idx = pd.date_range("2018-01-01", periods=500, freq="B")
+    # a spread that trends steadily against any entry rather than reverting
+    trending = pd.Series(np.linspace(0, 20, 500), index=idx) + rng.normal(0, 0.1, 500)
+    trending = pd.Series(trending, index=idx)
+
+    no_stop = backtest(trending, z_entry=1.0, z_exit=0.3, zscore_window=40, max_holding_days=200)
+    with_stop = backtest(trending, z_entry=1.0, z_exit=0.3, zscore_window=40, max_holding_days=200, stop_loss_z=0.5)
+
+    worst_no_stop = min((t.pnl for t in no_stop.trades), default=0)
+    worst_with_stop = min((t.pnl for t in with_stop.trades), default=0)
+    assert worst_with_stop >= worst_no_stop
+
+
+def test_size_multiplier_scales_pnl_proportionally(rng):
+    spread = _ou_process(rng)
+    baseline = backtest(spread, z_entry=1.5, z_exit=0.3, zscore_window=40, transaction_cost_bps=0)
+    doubled_mult = pd.Series(2.0, index=spread.index)
+    doubled = backtest(spread, z_entry=1.5, z_exit=0.3, zscore_window=40, transaction_cost_bps=0, size_multiplier=doubled_mult)
+    # zero costs isolates the sizing effect: doubling the multiplier for
+    # every trade should almost exactly double total PnL
+    assert doubled.daily_pnl.sum() == pytest.approx(2 * baseline.daily_pnl.sum(), rel=0.05)

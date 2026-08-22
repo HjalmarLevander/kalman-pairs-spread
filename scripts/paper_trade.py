@@ -34,6 +34,18 @@ CONFIGS = {
 CAPITAL_PER_PAIR = 250.0
 PAPER_TRADING_START = "2026-08-22"  # frozen once, do not move
 
+# v2 (enhancement track, run in PARALLEL to the frozen v1 baseline, never
+# replacing it): signal-proportional sizing (bet up to 2x when the entry
+# z-score is further past threshold) plus compounding (position sized off
+# CURRENT running capital, not the fixed initial $250). Both were tested
+# empirically on 2024-2026 OOS data before being added here -- proportional
+# sizing raised total P&L 19-45% across all 4 pairs with Sharpe roughly flat;
+# a stop-loss was tested too and REJECTED (it triggered re-entry whipsaws
+# during trending, non-reverting periods and made the worst trades larger,
+# not smaller -- see PROGRESS.md 2026-08-22 entry).
+V2_SIZE_CAP = 2.0
+V2_ENABLED = True
+
 
 def build_pair_series(label, cfg, today):
     a, b = cfg["pair"]
@@ -79,7 +91,41 @@ def build_pair_series(label, cfg, today):
             daily_pnl=round(float(bt.daily_pnl.loc[d] * units), 3),
             cum_pnl=round(float(cum_pnl.loc[d] - baseline), 3),
         ))
-    return rows
+
+    v2 = compute_v2_track(cfg, denoised, notional, z, result.spread.index)
+    return rows, v2
+
+
+def compute_v2_track(cfg, denoised, notional, z, all_dates):
+    """v2 (parallel enhancement track): signal-proportional sizing (up to
+    V2_SIZE_CAP based on entry z-score conviction) plus compounding (each new
+    trade sized off CURRENT running capital, not the fixed initial amount).
+    Only trades entering on or after PAPER_TRADING_START count -- this track
+    starts fresh from the same date as v1, so the two are a fair head-to-head
+    comparison rather than v2 inheriting a head start from backtested history.
+    """
+    size_mult_series = (z.abs() / cfg["z_entry"]).clip(lower=1.0, upper=V2_SIZE_CAP)
+    bt = backtest(denoised, z_entry=cfg["z_entry"], z_exit=cfg["z_exit"], zscore_window=60,
+                  notional=notional, size_multiplier=size_mult_series)
+
+    capital = CAPITAL_PER_PAIR
+    trade_log = []
+    for t in bt.trades:
+        if t.entry_date < pd.Timestamp(PAPER_TRADING_START):
+            continue
+        entry_notional = notional.loc[t.entry_date] if t.entry_date in notional.index else notional.mean()
+        units = capital / entry_notional
+        pnl_dollars = t.pnl * units
+        capital += pnl_dollars
+        trade_log.append(dict(
+            entry_date=t.entry_date.strftime("%Y-%m-%d"), exit_date=t.exit_date.strftime("%Y-%m-%d"),
+            pnl_dollars=round(pnl_dollars, 3), capital_after=round(capital, 3),
+        ))
+
+    return dict(
+        starting_capital=CAPITAL_PER_PAIR, current_capital=round(capital, 3),
+        n_trades=len(trade_log), trade_log=trade_log, size_cap=V2_SIZE_CAP,
+    )
 
 
 def main():
@@ -88,8 +134,8 @@ def main():
     print(f"Paper trading run: {today}  (evaluation started {PAPER_TRADING_START})\n")
 
     for label, cfg in CONFIGS.items():
-        rows = build_pair_series(label, cfg, today)
-        ledger[label] = dict(label=cfg["label"], config=cfg, rows=rows)
+        rows, v2 = build_pair_series(label, cfg, today)
+        ledger[label] = dict(label=cfg["label"], config=cfg, rows=rows, v2=v2)
 
         if not rows:
             print(f"{cfg['label']}: no paper-trading days yet")
@@ -97,10 +143,14 @@ def main():
         latest = rows[-1]
         print(f"{cfg['label']:12s} {latest['date']}  z={latest['zscore']:>6}  "
               f"position={latest['position']:+d}  decision={latest['decision']:12s}  "
-              f"daily_pnl=${latest['daily_pnl']:+.2f}  cum_pnl=${latest['cum_pnl']:+.2f}")
+              f"v1 daily_pnl=${latest['daily_pnl']:+.2f}  v1 cum_pnl=${latest['cum_pnl']:+.2f}  "
+              f"| v2 capital=${v2['current_capital']:.2f} ({v2['n_trades']} trades)")
 
-    combined_cum = sum(v["rows"][-1]["cum_pnl"] for v in ledger.values() if v["rows"])
-    print(f"\nCombined paper P&L since {PAPER_TRADING_START}: ${combined_cum:+.2f} (on $1000)")
+    combined_cum_v1 = sum(v["rows"][-1]["cum_pnl"] for v in ledger.values() if v["rows"])
+    combined_capital_v2 = sum(v["v2"]["current_capital"] for v in ledger.values())
+    print(f"\nCombined v1 (frozen baseline) P&L since {PAPER_TRADING_START}: ${combined_cum_v1:+.2f} (on $1000)")
+    print(f"Combined v2 (proportional sizing + compounding) capital: ${combined_capital_v2:.2f} "
+          f"(started at $1000, {'+' if combined_capital_v2>=1000 else ''}{combined_capital_v2-1000:.2f})")
 
     with open(LEDGER_PATH, "w") as f:
         json.dump(ledger, f)

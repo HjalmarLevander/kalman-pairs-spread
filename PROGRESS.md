@@ -319,3 +319,35 @@ doubling trade frequency/capital utilization versus the 2-pair book, via genuine
 multi-fold (not single-window) confirmation this time. GS/MS, KMB/PG, MO/PM,
 DHI/LEN, GLD/GDX, XOM/CVX remain single-fold-only under the fixed-window design
 and are NOT included -- same standard applied consistently.
+
+## 2026-08-22 — Paper trading started; stop-loss tested and rejected;
+## proportional sizing + compounding added as a parallel v2 track
+
+Paper trading began today (`PAPER_TRADING_PROTOCOL.md`, `scripts/paper_trade.py`)
+on the frozen 4-pair book: $250/pair, fixed, non-compounded, exact configs from
+the walk-forward work. Minimum 3-month evaluation window, no retuning during it,
+red flags pre-committed.
+
+Immediately tested two "make it more profitable" ideas empirically on the real
+2024-2026 OOS window rather than assuming either would help:
+
+- **Stop-loss: rejected.** Added `stop_loss_z` to `backtest()` (exit if z moves
+  further adverse than entry by a set amount). Made the worst trades *larger*,
+  not smaller (LUV/JBLU: -$4.89 -> -$23.67) -- an early exit often still leaves
+  z past the entry threshold, so the strategy immediately re-enters the same
+  losing bet and gets whipsawed repeatedly during genuine trends. Real,
+  useful negative result; not used anywhere.
+- **Signal-proportional sizing + compounding: works, added as v2 only.** Added
+  `size_multiplier` to `backtest()` (per-trade size scaled by conviction, i.e.
+  how far past entry threshold the z-score is, capped at 2x). Total P&L up
+  19-45% across all 4 pairs on the OOS window, Sharpe roughly flat. Not folded
+  into the frozen v1 protocol -- only tested on the same window used to
+  evaluate everything else, no independent confirmation yet. Instead runs as a
+  parallel "v2" track in `scripts/paper_trade.py` from the same 2026-08-22
+  start date, same $1000 capital, so paper trading itself becomes v2's fresh
+  out-of-sample test. v1 (frozen baseline) remains the primary evaluation
+  subject; v2 is a tracked candidate, not a replacement.
+
+Both `stop_loss_z` and `size_multiplier` are optional params on `backtest()`,
+default `None`/no-op -- every existing test and prior result is unaffected
+(29/29 tests pass, up from 27 with 2 new tests covering both mechanisms).
