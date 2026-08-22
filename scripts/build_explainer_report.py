@@ -112,6 +112,13 @@ def main():
     pp = perf["per_pair_stats"]
     pc = perf["per_pair_corr"]
 
+    # --- v2 (proportional sizing + compounding) on the same testing window ---
+    v2_perf = json.load(open(os.path.join(REPORTS, "v2_testing_performance.json")))
+    v2_eq = json.load(open(os.path.join(REPORTS, "v2_equity_curve.json")))
+    v1v2_range = (min(v2_eq["v1"] + v2_eq["v2"]), max(v2_eq["v1"] + v2_eq["v2"]))
+    v1_cmp_path, v1_cmp_zero, _, _ = line_path(v2_eq["v1"], y_range=v1v2_range)
+    v2_cmp_path, v2_cmp_zero, _, _ = line_path(v2_eq["v2"], y_range=v1v2_range)
+
     html = f"""<title>Mean Reversion, Explained</title>
 <style>
   :root {{
@@ -378,6 +385,46 @@ def main():
         <tr style="font-weight:700"><td>Combined</td><td class="pos">+${perf['combined_total_pnl']:.2f}</td><td>{perf['combined_sharpe']}</td><td>&mdash;</td><td>{perf['correlation_oos']:+.4f}</td></tr>
         </tbody>
       </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head" style="display:flex;flex-direction:column;gap:4px;">
+      <h2>v2 on the same testing data: proportional sizing + compounding</h2>
+      <p class="muted">Same window, same four pairs, same frozen entry/exit rules &mdash; but each trade is
+      sized up to 2x based on how extreme the entry z-score is (capped, not unlimited), and position size
+      compounds off each pair's own running capital instead of a fixed $250 forever.</p>
+    </div>
+    <div class="chart-card">
+      <svg viewBox="0 0 640 140" preserveAspectRatio="none">
+        {f'<line x1="8" y1="{v1_cmp_zero:.1f}" x2="632" y2="{v1_cmp_zero:.1f}" stroke="var(--muted-text)" stroke-width="1" stroke-dasharray="3,3" />' if v1_cmp_zero else ''}
+        <polyline points="{v1_cmp_path}" fill="none" stroke="var(--series-b)" stroke-width="1.8" />
+        <polyline points="{v2_cmp_path}" fill="none" stroke="var(--series-denoised)" stroke-width="2.2" />
+      </svg>
+      <div class="chart-legend">
+        <span><span class="swatch" style="background:var(--series-b)"></span>v1, fixed sizing ($1000 &rarr; ${1000+v2_perf['v1_combined_total']:,.0f})</span>
+        <span><span class="swatch" style="background:var(--series-denoised)"></span>v2, proportional + compounding ($1000 &rarr; ${v2_perf['v2_combined_final']:,.0f})</span>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>pair</th><th>v1 P&amp;L</th><th>v2: $250 &rarr;</th><th>v2 gain</th></tr></thead>
+        <tbody>
+        {"".join(f'''<tr><td>{r["label"]}</td><td class="{"pos" if r["v1_total"]>=0 else "neg"}">{"+" if r["v1_total"]>=0 else ""}${r["v1_total"]:.2f}</td><td>${r["v2_final"]:.2f}</td><td class="{"pos" if r["v2_total"]>=0 else "neg"}">{"+" if r["v2_total"]>=0 else ""}${r["v2_total"]:.2f}</td></tr>''' for r in v2_perf['per_pair'].values())}
+        <tr style="font-weight:700"><td>Combined</td><td class="pos">+${v2_perf['v1_combined_total']:.2f}</td><td>${v2_perf['v2_combined_final']:.2f}</td><td class="pos">+${v2_perf['v2_combined_total']:.2f}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout warn">
+      <span class="icon">&#9888;</span>
+      <div class="body"><strong>This is not a free upgrade.</strong> v2 earned 83% more in absolute dollars over
+      this window, but combined daily volatility was also ~83% higher (0.28% vs. 0.15% daily) and its Sharpe was
+      slightly <em>lower</em> (3.50 vs. 3.79) than v1's &mdash; bigger, compounding bets amplify both the gains and
+      the swings. And critically: this was only checked on the same 2024&ndash;2026 window used to evaluate
+      everything else in this project, not an independent holdout. That's exactly why v2 is running as a
+      <strong>separate, parallel paper-trading track</strong> alongside the frozen v1 baseline (see
+      <code>PAPER_TRADING_PROTOCOL.md</code>) rather than replacing it outright &mdash; paper trading itself is
+      v2's real out-of-sample test.</div>
     </div>
   </section>
 
