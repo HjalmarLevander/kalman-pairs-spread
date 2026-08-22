@@ -1,0 +1,297 @@
+<title>Mean Reversion, Explained</title>
+<style>
+  :root {
+    --bg: #f9f9f7; --surface: #fcfcfb; --surface-2: #f0efec; --border: rgba(11,11,11,0.10);
+    --text: #0b0b0b; --muted-text: #52514e; --axis: #898781; --grid: #e1e0d9;
+    --series-a: #2a78d6; --series-b: #eb6834; --series-denoised: #1baf7a;
+    --good: #0ca30c; --critical: #d03b3b; --warning: #eda100;
+    --mono: "SF Mono", "Menlo", "Consolas", monospace; --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d0d0d; --surface: #1a1a19; --surface-2: #232322; --border: rgba(255,255,255,0.10);
+      --text: #ffffff; --muted-text: #c3c2b7; --axis: #898781; --grid: #2c2c2a;
+      --series-a: #3987e5; --series-b: #d95926; --series-denoised: #199e70;
+      --good: #0ca30c; --critical: #e66767; --warning: #c98500;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d0d0d; --surface: #1a1a19; --surface-2: #232322; --border: rgba(255,255,255,0.10);
+    --text: #ffffff; --muted-text: #c3c2b7; --axis: #898781; --grid: #2c2c2a;
+    --series-a: #3987e5; --series-b: #d95926; --series-denoised: #199e70;
+    --good: #0ca30c; --critical: #e66767; --warning: #c98500;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+  body { font-family: var(--sans); line-height: 1.6; }
+  main { max-width: 900px; margin: 0 auto; padding: 40px 24px 80px; display: flex; flex-direction: column; gap: 44px; }
+
+  h1, h2, h3 { text-wrap: balance; margin: 0; overflow-wrap: break-word; }
+  h1 { font-size: 1.7rem; font-weight: 700; }
+  h2 { font-size: 1.25rem; font-weight: 700; }
+  h3 { font-size: 1rem; font-weight: 700; color: var(--muted-text); }
+  p { margin: 0; overflow-wrap: break-word; }
+  .muted { color: var(--muted-text); }
+  code, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  header { display: flex; flex-direction: column; gap: 14px; border-bottom: 1px solid var(--border); padding-bottom: 32px; }
+  .eyebrow { font-family: var(--mono); font-size: 0.75rem; color: var(--muted-text); text-transform: uppercase; letter-spacing: 0.1em; }
+  header p.lede { max-width: 68ch; color: var(--muted-text); font-size: 1.02rem; }
+
+  .verdict {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    background: color-mix(in srgb, var(--good) 12%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--good) 35%, var(--border));
+    border-radius: 10px; padding: 14px 18px; font-family: var(--mono); font-size: 0.88rem; color: var(--good);
+  }
+  .verdict .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: 0 0 auto; }
+
+  section { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .step-num { font-family: var(--mono); font-size: 0.75rem; color: var(--series-a); }
+
+  .step-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+  .step-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .step-card p { font-size: 0.85rem; color: var(--muted-text); }
+
+  .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .chart-card svg { width: 100%; height: auto; display: block; overflow-x: auto; }
+  .chart-legend { display: flex; gap: 16px; font-size: 0.76rem; color: var(--muted-text); flex-wrap: wrap; }
+  .chart-legend .swatch { display: inline-block; width: 10px; height: 2px; margin-right: 6px; vertical-align: middle; }
+
+  .trade-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .trade-card.win { border-color: color-mix(in srgb, var(--good) 40%, var(--border)); }
+  .trade-card.loss { border-color: color-mix(in srgb, var(--critical) 40%, var(--border)); }
+  .trade-header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+  .trade-pnl { font-family: var(--mono); font-size: 1.1rem; font-weight: 700; }
+  .trade-pnl.pos { color: var(--good); }
+  .trade-pnl.neg { color: var(--critical); }
+  .reasoning-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+  .reasoning-list li { display: flex; gap: 10px; font-size: 0.88rem; }
+  .reasoning-list .tag {
+    font-family: var(--mono); font-size: 0.68rem; padding: 2px 8px; border-radius: 5px; height: fit-content;
+    background: var(--surface-2); color: var(--muted-text); white-space: nowrap;
+  }
+
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; min-width: 480px; font-size: 0.85rem; }
+  thead th { background: var(--surface-2); color: var(--muted-text); text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tbody td { padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+  .pos { color: var(--good); }
+  .neg { color: var(--critical); }
+
+  .callout { border-radius: 10px; padding: 16px 20px; display: flex; gap: 12px; border: 1px solid var(--border); background: var(--surface); }
+  .callout.warn { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); background: color-mix(in srgb, var(--warning) 8%, var(--surface)); }
+  .callout .body { font-size: 0.88rem; overflow-wrap: break-word; }
+
+  footer { border-top: 1px solid var(--border); padding-top: 20px; font-size: 0.78rem; color: var(--muted-text); display: flex; flex-direction: column; gap: 6px; }
+</style>
+
+<main>
+
+  <header>
+    <span class="eyebrow">Kalman-Filtered Pairs Spread &middot; Plain-English Walkthrough</span>
+    <h1>Betting that two related stocks snap back together, explained step by step</h1>
+    <p class="lede">This strategy finds two economically-linked stocks, tracks the gap between their prices, and
+    bets that when the gap gets unusually wide, it will shrink back to normal. Below: the mechanism in plain
+    English, the actual math turned into pictures, a real trade that worked, a real trade that didn't, and how
+    it's performed on data none of this was built or tuned on.</p>
+    <div class="verdict">
+      <span class="dot"></span>
+      On testing data never used to fit the model (2024-01-01 to 2026-08-21, 661 trading days):
+      turned $1000 into $1,270 (Sharpe 3.83),
+      with -0.026 correlation to the S&amp;P 500 &mdash; essentially zero.
+    </div>
+  </header>
+
+  <section>
+    <h2>The five-step mechanism</h2>
+    <div class="step-grid">
+      <div class="step-card">
+        <span class="step-num">STEP 1</span>
+        <h3>Pick two linked stocks</h3>
+        <p>Two companies whose businesses move together for real economic reasons &mdash; e.g. two payment
+        networks, two beverage makers. Screened and statistically confirmed, not assumed.</p>
+      </div>
+      <div class="step-card">
+        <span class="step-num">STEP 2</span>
+        <h3>Track the gap between them</h3>
+        <p>The "spread" = one stock's price minus a ratio (&beta;) of the other's. That ratio drifts over time,
+        so it's re-estimated every day (a Kalman filter) rather than fixed once.</p>
+      </div>
+      <div class="step-card">
+        <span class="step-num">STEP 3</span>
+        <h3>Filter out the noise</h3>
+        <p>The raw gap is jittery. Break it into frequency "waves" (FFT), keep only the strongest ones, discard
+        the rest &mdash; leaving a cleaner picture of the real pattern.</p>
+      </div>
+      <div class="step-card">
+        <span class="step-num">STEP 4</span>
+        <h3>Wait for it to stretch far</h3>
+        <p>Compare today's (cleaned) gap to its own recent normal range. When it's stretched unusually far in
+        either direction, that's the signal.</p>
+      </div>
+      <div class="step-card">
+        <span class="step-num">STEP 5</span>
+        <h3>Bet on the snap-back</h3>
+        <p>Buy the cheap side, sell the expensive side, in the exact ratio that makes the bet neutral to the
+        overall market. Close the position once the gap normalizes.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Seeing the mean reversion</h2>
+    <p class="muted">A real 60-day window of the raw V/MA spread &mdash; the actual gap between the two stocks'
+    prices, scaled by the hedge ratio. Notice it wanders, but keeps being pulled back toward a central level
+    rather than drifting off forever. That pull-back tendency is the entire trade.</p>
+    <div class="chart-card">
+      <svg viewBox="0 0 640 140" preserveAspectRatio="none">
+        <line x1="8" y1="19.7" x2="632" y2="19.7" stroke="var(--grid)" stroke-width="1" stroke-dasharray="3,3" />
+        <polyline points="8.0,8.0 18.6,15.1 29.2,20.8 39.7,25.6 50.3,20.3 60.9,15.0 71.5,11.3 82.0,14.1 92.6,14.9 103.2,16.6 113.8,15.6 124.3,12.0 134.9,23.4 145.5,35.0 156.1,30.8 166.6,23.8 177.2,17.9 187.8,92.9 198.4,129.0 208.9,132.0 219.5,86.1 230.1,79.5 240.7,73.9 251.3,52.8 261.8,54.3 272.4,68.7 283.0,73.5 293.6,66.8 304.1,75.3 314.7,72.3 325.3,64.4 335.9,65.6 346.4,70.1 357.0,61.9 367.6,50.4 378.2,53.0 388.7,48.9 399.3,37.3 409.9,41.6 420.5,18.4 431.1,47.3 441.6,40.4 452.2,43.7 462.8,28.4 473.4,25.9 483.9,21.1 494.5,30.2 505.1,18.6 515.7,23.8 526.2,28.1 536.8,37.9 547.4,49.0 558.0,41.3 568.5,53.8 579.1,46.9 589.7,42.1 600.3,48.9 610.8,41.2 621.4,31.3 632.0,24.5" fill="none" stroke="var(--series-a)" stroke-width="1.8" />
+      </svg>
+      <div class="chart-legend"><span><span class="swatch" style="background:var(--series-a)"></span>raw spread (V/MA), 60 trading days</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Breaking it into waves</h2>
+    <p class="muted">The same 60-day window, decomposed into its 31 underlying frequency
+    components (a Fourier transform). Each bar is how much of the spread's total wiggle that frequency accounts
+    for. Only the <span style="color:var(--series-denoised)">tallest 10 bars</span> &mdash; above
+    the dashed threshold &mdash; are kept; the rest are treated as noise and zeroed out.</p>
+    <div class="chart-card">
+      <svg viewBox="0 0 640 140" preserveAspectRatio="none"><rect x="8.0" y="8.0" width="14.1" height="124.0" fill="var(--series-denoised)" opacity="0.95" rx="1.5"/><rect x="28.1" y="102.3" width="14.1" height="29.7" fill="var(--series-denoised)" opacity="0.95" rx="1.5"/><rect x="48.3" y="114.1" width="14.1" height="17.9" fill="var(--series-denoised)" opacity="0.95" rx="1.5"/><rect x="68.4" y="127.9" width="14.1" height="4.1" fill="var(--series-denoised)" opacity="0.95" rx="1.5"/><rect x="88.5" y="129.9" width="14.1" height="2.1" fill="var(--series-denoised)" opacity="0.95" rx="1.5"/><rect x="108.6" y="124.7" width="14.1" height="7.3" fill="var(--series-denoised)" opacity="0.95" rx="1.5"/><rect x="128.8" y="130.7" width="14.1" height="1.3" fill="var(--series-denoised)" opacity="0.95" rx="1.5"/><rect x="148.9" y="129.8" width="14.1" height="2.2" fill="var(--series-denoised)" opacity="0.95" rx="1.5"/><rect x="169.0" y="128.3" width="14.1" height="3.7" fill="var(--series-denoised)" opacity="0.95" rx="1.5"/><rect x="189.2" y="131.0" width="14.1" height="1.0" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="209.3" y="131.4" width="14.1" height="0.6" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="229.4" y="130.2" width="14.1" height="1.8" fill="var(--series-denoised)" opacity="0.95" rx="1.5"/><rect x="249.5" y="131.2" width="14.1" height="0.8" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="269.7" y="130.7" width="14.1" height="1.3" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="289.8" y="131.8" width="14.1" height="0.2" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="309.9" y="131.3" width="14.1" height="0.7" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="330.1" y="131.5" width="14.1" height="0.5" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="350.2" y="131.6" width="14.1" height="0.4" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="370.3" y="131.9" width="14.1" height="0.1" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="390.5" y="131.9" width="14.1" height="0.1" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="410.6" y="132.0" width="14.1" height="0.0" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="430.7" y="132.0" width="14.1" height="0.0" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="450.8" y="131.9" width="14.1" height="0.1" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="471.0" y="131.6" width="14.1" height="0.4" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="491.1" y="132.0" width="14.1" height="0.0" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="511.2" y="132.0" width="14.1" height="0.0" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="531.4" y="131.7" width="14.1" height="0.3" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="551.5" y="131.9" width="14.1" height="0.1" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="571.6" y="131.8" width="14.1" height="0.2" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="591.7" y="131.6" width="14.1" height="0.4" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><rect x="611.9" y="132.0" width="14.1" height="0.0" fill="var(--muted-text)" opacity="0.35" rx="1.5"/><line x1="8" y1="130.7" x2="632" y2="130.7" stroke="var(--warning)" stroke-width="1" stroke-dasharray="4,3"/></svg>
+      <div class="chart-legend">
+        <span><span class="swatch" style="background:var(--series-denoised)"></span>kept (10 of 31)</span>
+        <span><span class="swatch" style="background:var(--muted-text);opacity:0.5"></span>discarded as noise</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The simplified pattern</h2>
+    <p class="muted">Reconstructing the spread from only the kept waves produces a cleaner version of the same
+    60 days &mdash; the underlying pull-toward-center pattern, with the high-frequency jitter removed.</p>
+    <div class="chart-card">
+      <svg viewBox="0 0 640 140" preserveAspectRatio="none">
+        <polyline points="8.0,8.0 18.6,15.1 29.2,20.8 39.7,25.6 50.3,20.3 60.9,15.0 71.5,11.3 82.0,14.1 92.6,14.9 103.2,16.6 113.8,15.6 124.3,12.0 134.9,23.4 145.5,35.0 156.1,30.8 166.6,23.8 177.2,17.9 187.8,92.9 198.4,129.0 208.9,132.0 219.5,86.1 230.1,79.5 240.7,73.9 251.3,52.8 261.8,54.3 272.4,68.7 283.0,73.5 293.6,66.8 304.1,75.3 314.7,72.3 325.3,64.4 335.9,65.6 346.4,70.1 357.0,61.9 367.6,50.4 378.2,53.0 388.7,48.9 399.3,37.3 409.9,41.6 420.5,18.4 431.1,47.3 441.6,40.4 452.2,43.7 462.8,28.4 473.4,25.9 483.9,21.1 494.5,30.2 505.1,18.6 515.7,23.8 526.2,28.1 536.8,37.9 547.4,49.0 558.0,41.3 568.5,53.8 579.1,46.9 589.7,42.1 600.3,48.9 610.8,41.2 621.4,31.3 632.0,24.5" fill="none" stroke="var(--muted-text)" stroke-width="1" opacity="0.6" />
+        <polyline points="8.0,9.7 18.6,16.0 29.2,25.2 39.7,27.3 50.3,20.4 60.9,11.8 71.5,9.0 82.0,12.5 92.6,16.8 103.2,18.0 113.8,17.6 124.3,18.6 134.9,21.1 145.5,22.4 156.1,23.0 166.6,29.8 177.2,50.0 187.8,81.3 198.4,109.8 208.9,120.2 219.5,108.2 230.1,84.3 240.7,64.1 251.3,56.3 261.8,58.2 272.4,63.0 283.0,67.0 293.6,71.2 304.1,75.6 314.7,76.6 325.3,71.2 335.9,62.1 346.4,56.5 357.0,58.2 367.6,62.5 378.2,60.2 388.7,48.1 399.3,33.3 409.9,26.8 420.5,32.5 431.1,42.7 441.6,46.6 452.2,40.4 462.8,30.0 473.4,23.5 483.9,22.9 494.5,24.1 505.1,23.7 515.7,23.8 526.2,28.7 536.8,38.1 547.4,46.4 558.0,48.3 568.5,45.4 579.1,44.2 589.7,47.6 600.3,50.5 610.8,45.0 621.4,30.3 632.0,15.0" fill="none" stroke="var(--series-denoised)" stroke-width="2" />
+      </svg>
+      <div class="chart-legend">
+        <span><span class="swatch" style="background:var(--muted-text)"></span>raw</span>
+        <span><span class="swatch" style="background:var(--series-denoised)"></span>denoised (kept waves only)</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>A real winning trade, step by step</h2>
+    <div class="trade-card win">
+      <div class="trade-header">
+        <h3>V / MA &middot; 2026-06-30 &rarr; 2026-07-24 (17 trading days)</h3>
+        <span class="trade-pnl pos">+$6.56 on $250 allocated</span>
+      </div>
+      <div class="chart-card" style="padding:12px 14px;">
+        <svg viewBox="0 0 640 160" preserveAspectRatio="none">
+          <line x1="8" y1="67.6" x2="632" y2="67.6" stroke="var(--grid)" stroke-width="1" stroke-dasharray="3,3" />
+          <polyline points="8.0,83.3 24.9,73.2 41.7,77.1 58.6,63.7 75.5,56.7 92.3,75.0 109.2,100.7 126.1,104.7 142.9,104.8 159.8,120.7 176.6,114.3 193.5,120.8 210.4,119.2 227.2,105.2 244.1,77.4 261.0,56.1 277.8,85.5 294.7,81.2 311.6,79.2 328.4,72.9 345.3,79.1 362.2,58.4 379.0,26.4 395.9,24.4 412.8,45.8 429.6,70.0 446.5,67.6 463.4,51.4 480.2,36.8 497.1,33.8 513.9,47.4 530.8,75.7 547.7,132.0 564.5,152.0 581.4,101.0 598.3,76.8 615.1,36.8 632.0,8.0" fill="none" stroke="var(--series-a)" stroke-width="1.8" />
+          <circle cx="261.0" cy="56.1" r="4.5" fill="var(--critical)" />
+          <circle cx="547.7" cy="132.0" r="4.5" fill="var(--warning)" />
+        </svg>
+      </div>
+      <ul class="reasoning-list">
+        <li><span class="tag">ENTRY</span><span>On 2026-06-30, the denoised spread's z-score hit 1.07 &mdash;
+        beyond the entry threshold. Decision: <strong>SHORT the spread (sell MA, buy V)</strong>. V was priced at $342.45, MA at $512.74, hedge ratio &beta;=1.501.</span></li>
+        <li><span class="tag">HOLD</span><span>Position held for 17 trading days while the spread moved back toward its recent average.</span></li>
+        <li><span class="tag">EXIT</span><span>On 2026-07-24, z-score had fallen to -0.43 &mdash; inside the exit band.
+        Position closed. Realized profit: <strong class="pos">+$6.56</strong> on the $250 allocated to this pair.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>A real losing trade &mdash; why it doesn't always work</h2>
+    <p class="muted">Not every trade reverts on schedule. This is the actual mechanism failing, not a
+    hypothetical: the spread kept drifting instead of snapping back, and the position was closed at a loss when
+    the z-score itself unwound past our exit band on the wrong side, rather than reverting to the entry level.</p>
+    <div class="trade-card loss">
+      <div class="trade-header">
+        <h3>V / MA &middot; 2023-10-05 &rarr; 2023-11-13 (27 trading days)</h3>
+        <span class="trade-pnl neg">$-2.44 on $250 allocated</span>
+      </div>
+      <div class="chart-card" style="padding:12px 14px;">
+        <svg viewBox="0 0 640 160" preserveAspectRatio="none">
+          <line x1="8" y1="59.3" x2="632" y2="59.3" stroke="var(--grid)" stroke-width="1" stroke-dasharray="3,3" />
+          <polyline points="8.0,29.2 18.9,8.0 29.9,23.2 40.8,33.2 51.8,27.8 62.7,28.5 73.7,36.0 84.6,29.8 95.6,25.2 106.5,29.5 117.5,31.2 128.4,31.0 139.4,41.7 150.3,48.2 161.3,53.7 172.2,68.8 183.2,61.4 194.1,68.1 205.1,64.3 216.0,59.8 226.9,57.4 237.9,69.9 248.8,65.2 259.8,66.4 270.7,73.0 281.7,84.4 292.6,91.6 303.6,81.9 314.5,85.3 325.5,104.6 336.4,142.3 347.4,152.0 358.3,135.2 369.3,119.4 380.2,125.7 391.2,129.9 402.1,133.7 413.1,119.7 424.0,116.1 434.9,109.0 445.9,90.1 456.8,85.0 467.8,81.7 478.7,77.5 489.7,75.5 500.6,88.2 511.6,69.1 522.5,54.1 533.5,53.0 544.4,58.4 555.4,61.6 566.3,54.3 577.3,54.3 588.2,64.7 599.2,57.8 610.1,53.6 621.1,67.3 632.0,75.6" fill="none" stroke="var(--series-a)" stroke-width="1.8" />
+          <circle cx="172.2" cy="68.8" r="4.5" fill="var(--good)" />
+          <circle cx="467.8" cy="81.7" r="4.5" fill="var(--warning)" />
+        </svg>
+      </div>
+      <ul class="reasoning-list">
+        <li><span class="tag">ENTRY</span><span>On 2023-10-05, z-score was -1.47, past the entry threshold.
+        Decision: <strong>LONG the spread (buy MA, sell V)</strong>. V at $228.22, MA at $387.79, &beta;=1.706.</span></li>
+        <li><span class="tag">WHAT WENT WRONG</span><span>Rather than reverting toward the entry level, the spread continued moving and
+        eventually crossed back the other way, past the exit band on the losing side &mdash; the relationship didn't behave the way its recent
+        history suggested it would.</span></li>
+        <li><span class="tag">EXIT</span><span>Closed on 2023-11-13 for <strong class="neg">$-2.44</strong>.
+        This is the real, irreducible risk: mean reversion is a tendency estimated from history, not a guarantee for any single trade.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Performance on testing data</h2>
+    <p class="muted">"Testing data" here means data that came <em>after</em> each pair's parameters were frozen
+    &mdash; none of it was used to choose the hedge ratio, the denoising threshold, or the entry/exit rules.
+    Combined across all four validated pairs, $250 allocated to each:</p>
+    <div class="chart-card">
+      <svg viewBox="0 0 640 160" preserveAspectRatio="none">
+        <polyline points="8.0,130.2 10.8,132.0 13.7,128.7 16.5,129.4 19.3,126.5 22.2,125.4 25.0,123.2 27.9,124.0 30.7,122.2 33.5,119.4 36.4,120.4 39.2,121.1 42.0,116.9 44.9,117.5 47.7,115.3 50.5,114.3 53.4,113.6 56.2,115.6 59.1,111.6 61.9,111.8 64.7,110.6 67.6,112.0 70.4,112.2 73.2,112.5 76.1,118.0 78.9,121.1 81.7,117.3 84.6,115.5 87.4,117.4 90.3,112.8 93.1,111.4 95.9,108.0 98.8,107.9 101.6,109.5 104.4,109.4 107.3,108.8 110.1,106.2 112.9,105.3 115.8,103.1 118.6,101.5 121.5,101.7 124.3,101.9 127.1,99.2 130.0,97.5 132.8,95.9 135.6,97.1 138.5,98.0 141.3,104.1 144.1,102.8 147.0,106.2 149.8,111.6 152.7,106.1 155.5,98.5 158.3,96.4 161.2,95.1 164.0,96.6 166.8,98.9 169.7,103.4 172.5,98.0 175.3,94.8 178.2,91.8 181.0,91.0 183.9,90.9 186.7,91.9 189.5,92.3 192.4,89.1 195.2,87.7 198.0,85.9 200.9,88.4 203.7,87.3 206.5,92.0 209.4,88.9 212.2,80.7 215.1,81.1 217.9,84.6 220.7,82.4 223.6,79.8 226.4,78.6 229.2,77.5 232.1,79.0 234.9,78.4 237.7,85.3 240.6,81.3 243.4,81.2 246.3,85.1 249.1,83.6 251.9,86.4 254.8,82.5 257.6,76.8 260.4,79.5 263.3,77.3 266.1,78.6 268.9,79.0 271.8,78.0 274.6,74.9 277.5,79.3 280.3,81.4 283.1,85.5 286.0,89.7 288.8,96.1 291.6,93.5 294.5,91.8 297.3,88.5 300.1,91.2 303.0,93.5 305.8,114.9 308.7,98.3 311.5,101.9 314.3,106.8 317.2,103.3 320.0,97.4 322.8,94.5 325.7,94.4 328.5,92.3 331.3,83.3 334.2,80.6 337.0,85.1 339.9,83.3 342.7,81.4 345.5,81.2 348.4,77.4 351.2,79.7 354.0,79.6 356.9,75.3 359.7,72.2 362.5,70.0 365.4,70.1 368.2,68.8 371.1,68.6 373.9,66.8 376.7,64.7 379.6,64.3 382.4,69.6 385.2,65.3 388.1,64.1 390.9,60.6 393.7,62.6 396.6,60.5 399.4,60.0 402.3,62.4 405.1,59.7 407.9,57.8 410.8,54.5 413.6,54.0 416.4,52.9 419.3,53.4 422.1,50.9 424.9,49.7 427.8,49.8 430.6,53.3 433.5,52.4 436.3,51.1 439.1,44.4 442.0,46.5 444.8,48.3 447.6,49.9 450.5,45.1 453.3,52.0 456.1,57.0 459.0,48.3 461.8,46.3 464.7,44.7 467.5,45.2 470.3,45.7 473.2,49.7 476.0,43.8 478.8,41.7 481.7,44.9 484.5,41.1 487.3,40.2 490.2,41.6 493.0,46.6 495.9,42.1 498.7,39.7 501.5,39.7 504.4,46.6 507.2,41.0 510.0,45.0 512.9,43.9 515.7,42.8 518.5,43.3 521.4,43.7 524.2,46.3 527.1,51.0 529.9,49.2 532.7,57.1 535.6,53.9 538.4,63.5 541.2,54.3 544.1,46.5 546.9,42.6 549.7,36.5 552.6,35.6 555.4,31.8 558.3,32.7 561.1,30.2 563.9,24.9 566.8,22.4 569.6,22.0 572.4,21.2 575.3,17.6 578.1,15.3 580.9,16.1 583.8,22.0 586.6,22.5 589.5,17.7 592.3,19.2 595.1,23.2 598.0,18.3 600.8,16.5 603.6,16.4 606.5,16.3 609.3,19.7 612.1,18.1 615.0,21.3 617.8,20.3 620.7,8.7 623.5,8.0 626.3,8.3 629.2,8.2 632.0,12.2" fill="none" stroke="var(--series-b)" stroke-width="1.8" />
+        <polyline points="8.0,130.2 10.8,130.1 13.7,129.3 16.5,129.1 19.3,128.8 22.2,128.6 25.0,128.4 27.9,128.5 30.7,128.9 33.5,128.0 36.4,129.1 39.2,128.5 42.0,127.6 44.9,127.1 47.7,127.1 50.5,127.2 53.4,128.0 56.2,128.6 59.1,128.5 61.9,129.2 64.7,128.3 67.6,127.9 70.4,127.0 73.2,126.8 76.1,126.8 78.9,126.8 81.7,126.7 84.6,126.2 87.4,126.1 90.3,126.1 93.1,125.6 95.9,125.6 98.8,125.1 101.6,124.7 104.4,125.2 107.3,125.2 110.1,125.1 112.9,124.9 115.8,124.7 118.6,124.1 121.5,124.2 124.3,124.6 127.1,124.2 130.0,123.9 132.8,123.6 135.6,123.7 138.5,123.0 141.3,122.8 144.1,122.5 147.0,121.8 149.8,121.6 152.7,120.5 155.5,121.1 158.3,120.5 161.2,120.5 164.0,120.2 166.8,119.9 169.7,118.7 172.5,118.0 175.3,118.0 178.2,118.0 181.0,118.1 183.9,118.4 186.7,117.5 189.5,117.6 192.4,117.2 195.2,117.0 198.0,117.1 200.9,117.0 203.7,116.8 206.5,114.9 209.4,115.1 212.2,115.1 215.1,116.0 217.9,115.0 220.7,113.7 223.6,114.3 226.4,113.3 229.2,112.7 232.1,113.0 234.9,113.0 237.7,112.9 240.6,113.2 243.4,112.8 246.3,112.5 249.1,112.3 251.9,113.0 254.8,112.6 257.6,112.2 260.4,111.1 263.3,108.4 266.1,107.4 268.9,106.8 271.8,107.4 274.6,108.0 277.5,106.8 280.3,106.5 283.1,106.3 286.0,106.3 288.8,106.1 291.6,106.2 294.5,106.4 297.3,106.5 300.1,105.8 303.0,105.9 305.8,105.2 308.7,105.4 311.5,105.2 314.3,104.4 317.2,104.5 320.0,104.7 322.8,104.7 325.7,105.2 328.5,104.8 331.3,104.1 334.2,103.2 337.0,103.2 339.9,103.1 342.7,102.8 345.5,102.5 348.4,102.6 351.2,102.6 354.0,102.6 356.9,102.4 359.7,101.9 362.5,102.3 365.4,102.2 368.2,102.9 371.1,102.4 373.9,102.5 376.7,103.4 379.6,103.1 382.4,102.9 385.2,103.2 388.1,103.6 390.9,104.1 393.7,104.9 396.6,103.3 399.4,103.5 402.3,103.8 405.1,102.8 407.9,102.0 410.8,101.5 413.6,101.5 416.4,101.2 419.3,101.2 422.1,100.2 424.9,100.1 427.8,99.3 430.6,99.1 433.5,98.5 436.3,97.6 439.1,97.6 442.0,97.9 444.8,98.1 447.6,98.2 450.5,98.5 453.3,97.3 456.1,97.2 459.0,97.6 461.8,97.2 464.7,96.3 467.5,96.0 470.3,96.1 473.2,95.9 476.0,95.6 478.8,95.8 481.7,96.1 484.5,95.5 487.3,95.2 490.2,95.1 493.0,94.8 495.9,94.7 498.7,94.2 501.5,93.7 504.4,92.7 507.2,92.3 510.0,92.0 512.9,91.3 515.7,91.1 518.5,90.8 521.4,90.8 524.2,90.8 527.1,90.8 529.9,90.9 532.7,90.8 535.6,90.6 538.4,90.0 541.2,90.3 544.1,90.4 546.9,89.9 549.7,91.1 552.6,90.4 555.4,88.3 558.3,88.6 561.1,88.6 563.9,88.1 566.8,88.9 569.6,88.9 572.4,87.8 575.3,87.4 578.1,87.0 580.9,87.0 583.8,86.5 586.6,86.6 589.5,85.9 592.3,84.8 595.1,84.8 598.0,85.3 600.8,84.3 603.6,84.3 606.5,84.1 609.3,84.4 612.1,83.9 615.0,82.9 617.8,83.5 620.7,82.8 623.5,82.3 626.3,82.1 629.2,81.8 632.0,82.0" fill="none" stroke="var(--series-a)" stroke-width="2.2" />
+      </svg>
+      <div class="chart-legend">
+        <span><span class="swatch" style="background:var(--series-a)"></span>this strategy ($1000 &rarr; $1,270)</span>
+        <span><span class="swatch" style="background:var(--series-b)"></span>SPY, same window ($1000 &rarr; $1,662)</span>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>pair</th><th>P&amp;L on $250</th><th>Sharpe</th><th>half-life</th><th>correlation to SPY</th></tr></thead>
+        <tbody>
+        <tr><td>V / MA</td><td class="pos">+$40.57</td><td>1.56</td><td>7.3d</td><td>-0.0427</td></tr><tr><td>KO / PEP</td><td class="pos">+$60.11</td><td>1.73</td><td>11.6d</td><td>-0.0074</td></tr><tr><td>UNP / CSX</td><td class="pos">+$65.28</td><td>2.5</td><td>8.4d</td><td>+0.0133</td></tr><tr><td>LUV / JBLU</td><td class="pos">+$104.41</td><td>1.99</td><td>11.0d</td><td>-0.0153</td></tr>
+        <tr style="font-weight:700"><td>Combined</td><td class="pos">+$270.38</td><td>3.83</td><td>&mdash;</td><td>-0.0258</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Why near-zero correlation is the actual point</h2>
+    <p>SPY earned far more in raw terms over this same window (66.2% vs.
+    27.0%) &mdash; this was never going to out-earn a strong bull market, and
+    it shouldn't be judged as if that were the goal. What it does instead: its daily returns have essentially no
+    relationship to the market's (correlation -0.026), confirmed individually for every
+    pair including the more cyclical airline pair (LUV/JBLU: -0.0153). A return stream this
+    independent of market direction is valuable specifically as a diversifier &mdash; it doesn't need to beat
+    the market to be worth holding alongside it.</p>
+  </section>
+
+  <div class="callout warn">
+    <span class="body"><strong>Read alongside, not instead of, the full research log.</strong> This page is the
+    plain-English walkthrough. The detailed methodology &mdash; walk-forward validation, the transaction-cost
+    bug that was caught and fixed, leverage economics, bet-sizing analysis, and every retraction along the way
+    &mdash; lives in the companion strategy report. Nothing here has been paper-traded or run with real money
+    yet.</span>
+  </div>
+
+  <footer>
+    <span>Generated from <code>reports/explainer_data.json</code> and <code>reports/testing_performance.json</code>
+    by <code>scripts/build_explainer_report.py</code> &mdash; static HTML, no build step, following the same
+    layout discipline as Robin Swarm's html_builder (grid/flexbox only, no fixed heights on text, box-sizing
+    border-box) even though this was written directly rather than through the live pipeline (no API credits
+    this session).</span>
+  </footer>
+
+</main>
