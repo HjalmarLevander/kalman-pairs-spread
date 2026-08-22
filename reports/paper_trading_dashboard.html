@@ -1,0 +1,87 @@
+<title>Paper Trading Dashboard</title>
+<style>
+  :root {
+    --bg: #f9f9f7; --surface: #fcfcfb; --surface-2: #f0efec; --border: rgba(11,11,11,0.10);
+    --text: #0b0b0b; --muted-text: #52514e; --good: #0ca30c; --critical: #d03b3b; --accent: #2a78d6;
+    --mono: "SF Mono", "Menlo", "Consolas", monospace; --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d0d0d; --surface: #1a1a19; --surface-2: #232322; --border: rgba(255,255,255,0.10);
+      --text: #ffffff; --muted-text: #c3c2b7; --good: #0ca30c; --critical: #e66767; --accent: #3987e5;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d0d0d; --surface: #1a1a19; --surface-2: #232322; --border: rgba(255,255,255,0.10);
+    --text: #ffffff; --muted-text: #c3c2b7; --good: #0ca30c; --critical: #e66767; --accent: #3987e5;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+  body { font-family: var(--sans); line-height: 1.5; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 20px 60px; display: flex; flex-direction: column; gap: 28px; }
+  h1 { font-size: 1.4rem; margin: 0; }
+  p { margin: 0; overflow-wrap: break-word; }
+  .muted { color: var(--muted-text); }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  header { display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--border); padding-bottom: 20px; }
+  .status-banner { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; font-family: var(--mono); font-size: 0.85rem; }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .kicker { font-size: 0.72rem; color: var(--muted-text); text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat-row { display: flex; justify-content: space-between; font-size: 0.82rem; gap: 8px; }
+  .stat-row .k { color: var(--muted-text); }
+  .stat-row .v { font-family: var(--mono); }
+  .pos { color: var(--good); }
+  .neg { color: var(--critical); }
+  .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+  .chart-card svg { width: 100%; height: auto; display: block; }
+  footer { border-top: 1px solid var(--border); padding-top: 14px; font-size: 0.72rem; color: var(--muted-text); }
+</style>
+<main>
+  <header>
+    <h1>Paper Trading &mdash; v1 (frozen) vs v2 (proportional sizing + compounding)</h1>
+    <p class="muted">Started 2026-08-22. See PAPER_TRADING_PROTOCOL.md for the rules. No real money, no broker
+    &mdash; a daily computed signal on real market data, logged forward.</p>
+  </header>
+
+  <div class="status-banner">
+    No trading days logged yet &mdash; markets closed since evaluation start. Run `python -m scripts.paper_trade` after the next market close.
+  </div>
+
+  <section>
+    <div class="card-grid">
+      
+        <div class="card">
+          <span class="kicker">V / MA</span>
+          <p class="muted" style="font-size:0.85rem">No trading day logged yet &mdash; awaiting next market close.</p>
+          <div class="stat-row"><span class="k">v2 capital</span><span class="v">$250.00 (0 trades)</span></div>
+        </div>
+        <div class="card">
+          <span class="kicker">KO / PEP</span>
+          <p class="muted" style="font-size:0.85rem">No trading day logged yet &mdash; awaiting next market close.</p>
+          <div class="stat-row"><span class="k">v2 capital</span><span class="v">$250.00 (0 trades)</span></div>
+        </div>
+        <div class="card">
+          <span class="kicker">UNP / CSX</span>
+          <p class="muted" style="font-size:0.85rem">No trading day logged yet &mdash; awaiting next market close.</p>
+          <div class="stat-row"><span class="k">v2 capital</span><span class="v">$250.00 (0 trades)</span></div>
+        </div>
+        <div class="card">
+          <span class="kicker">LUV / JBLU</span>
+          <p class="muted" style="font-size:0.85rem">No trading day logged yet &mdash; awaiting next market close.</p>
+          <div class="stat-row"><span class="k">v2 capital</span><span class="v">$250.00 (0 trades)</span></div>
+        </div>
+    </div>
+  </section>
+
+  
+
+  <section class="chart-card">
+    <span class="kicker">v2 combined capital</span>
+    <p class="mono" style="font-size:1.3rem; margin:0;">$1,000.00</p>
+    <p class="muted" style="font-size:0.8rem">Started at $1000. Compounds per-pair as trades close.</p>
+  </section>
+
+  <footer>Generated from reports/paper_trading_ledger.json by scripts/build_paper_trading_dashboard.py. Re-run
+  both after each day's `python -m scripts.paper_trade` to refresh.</footer>
+</main>
