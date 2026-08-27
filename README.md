@@ -11,6 +11,8 @@ dead end and rejected idea: [PROGRESS.md](PROGRESS.md).
 
 ## Status: paper trading, in progress (started 2026-08-22)
 
+**Live status (auto-updated daily): [LIVE_STATUS.md](LIVE_STATUS.md)**
+
 This is **not** a finished, validated, profitable strategy yet — it's an
 active research project currently in its paper-trading evaluation phase,
 running on a real (simulated-money) Alpaca paper broker. Numbers below are
