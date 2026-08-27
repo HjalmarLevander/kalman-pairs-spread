@@ -1,0 +1,4 @@
+alpaca-py==0.43.5
+python-dotenv==1.2.1
+scikit-base==0.12.6
+scikit-learn==1.6.1

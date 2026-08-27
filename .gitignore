@@ -5,3 +5,10 @@ __pycache__/
 data/*.csv
 data/*.parquet
 .env
+
+# live paper-trading state: changes daily, not meant to be a static commit
+reports/alpaca_live_state.json
+reports/alpaca_signal_log.csv
+reports/launchd_stdout.log
+reports/launchd_stderr.log
+reports/paper_trading_ledger.json

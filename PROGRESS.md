@@ -351,3 +351,60 @@ Immediately tested two "make it more profitable" ideas empirically on the real
 Both `stop_loss_z` and `size_multiplier` are optional params on `backtest()`,
 default `None`/no-op -- every existing test and prior result is unaffected
 (29/29 tests pass, up from 27 with 2 new tests covering both mechanisms).
+
+## 2026-08-25 — Live paper execution via Alpaca; ML confidence-sizing tried and rejected
+
+**Alpaca paper broker execution wired up** (`scripts/alpaca_paper_trade.py`,
+v2 track only, run manually or via a local launchd schedule at 9:35am ET
+weekdays) -- places real orders on a paper account instead of only logging
+"what would happen." Two real bugs caught and fixed along the way: (1)
+`backtest()` only appends to its `trades` list when a position *closes*, so
+checking `bt.trades` for "did we enter today" silently misses every live
+entry that's still open -- rewrote the live script to evaluate today's
+z-score against tracked position state directly, mirroring `backtest()`'s
+own per-step entry/exit conditions instead of reading completed trades. (2)
+Alpaca rejects fractional/notional *short-sale* orders (whole shares only);
+a naive notional order on both legs can silently fill one leg and reject the
+other, leaving a naked unhedged position -- fixed by using whole-share qty
+orders for the short leg specifically, with automatic rollback of the first
+leg if the second fails.
+
+**ML confidence-sizing (random forest on trade outcomes): tested and
+rejected.** Idea: train a classifier on entry-time features (z-score, spread
+std, beta, beta uncertainty, notional, half-life) to predict win/loss, use
+predicted probability as a position-size multiplier. Built
+`src/phase5_ml_confidence.py` with a time-based per-pair train/test split
+(no shuffling, since adjacent-in-time trades share market regime -- same
+discipline as the walk-forward validation work). Result: **out-of-sample AUC
+0.473, i.e. worse than a coin flip.** Per-pair AUC was scattered and mostly
+bad (KO/PEP 0.126 -- actively anti-predictive; LUV/JBLU 0.235; V/MA 0.715 on
+just 48 test trades, plausibly luck; UNP/CSX undetermined, every test trade
+won). An apparent +$143 pnl improvement from confidence-weighted sizing
+turned out to be a mirage: confidence correlated 0.70 with `entry_notional`,
+meaning the model was mostly just learning *which pair* a trade belonged to
+(pairs differ systematically in size/base hit rate) rather than real
+per-trade timing skill. A proper null test -- shuffling confidence scores
+*within* each pair, which removes the "just detect pair identity" shortcut
+but preserves everything else -- put the real model's improvement at the
+21st percentile of pure noise. **Root cause: too little data.** ~300 trades
+across 4 pairs, several features that trivially separate the 4 pairs, and
+already-high 87-96% per-pair hit rates leave essentially no within-pair
+signal for a tree model to find. Not adopted. Would need materially more
+trade history (years more paper/live trading) or a different framing
+(continuous reversion-speed regression instead of binary win/loss) to be
+worth revisiting -- not a "try harder on the same data" problem.
+
+**Sizing model changed: percent-of-equity instead of fixed $/pair.** Per
+user decision, replaced the frozen $250 (or $700 for UNP/CSX)-per-pair
+allocation with dynamic sizing off live Alpaca account equity at entry time:
+each trade sized at 10-20% of total account equity, scaled linearly by the
+same z-score-conviction multiplier v2 already used (min conviction at
+`z_entry` -> 10%, capped conviction at `V2_SIZE_CAP` -> 20%). This also
+incidentally resolves the UNP/CSX whole-share-short sizing problem from
+earlier today without needing a per-pair capital override, since 10-20% of
+a $100k paper account is far above the ~$612 minimum needed to clear 1
+share on that pair's small-beta hedge leg. Flag: up to 4 pairs can signal
+simultaneously, so worst case is ~4x20%=80% of account equity deployed at
+once -- a real, deliberate increase in aggregation risk versus the earlier
+fixed small-dollar allocation, not something separately backtested at this
+scale.
