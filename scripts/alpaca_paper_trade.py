@@ -15,6 +15,7 @@ double-submitting orders.
 """
 import json
 import os
+import subprocess
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -23,7 +24,8 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 
-from scripts.paper_trade import CONFIGS, V2_SIZE_CAP
+from scripts.paper_trade import CONFIGS, PAPER_TRADING_START, V2_SIZE_CAP
+from src.alpaca_prices import load_prices_alpaca
 from src.phase0_pair_selection import load_prices
 from src.phase1_kalman_hedge_ratio import fit_noise_params_with_half_life_floor, run_kalman_filter
 from src.phase2_fft_denoise import rolling_fft_denoise
@@ -106,6 +108,20 @@ def compute_today_signal(label: str, cfg: dict, today: str, pair_state: dict):
         fit_prices[a], fit_prices[b], min_half_life_days=10.0
     )
     full_prices = load_prices([a, b], cfg["fit_start"], today)
+    # Alpaca (the broker we're actually trading through) takes priority over
+    # yfinance for the last few days -- fresher, and keeps signal + execution
+    # on the same data source where it matters most (today's price). Long
+    # history stays on yfinance's split/dividend-adjusted series; only a
+    # short recent window is ever sourced from Alpaca, to avoid multi-year
+    # adjustment drift (see src/alpaca_prices.py docstring).
+    recent_start = (pd.Timestamp(today) - pd.Timedelta(days=7)).strftime("%Y-%m-%d")
+    try:
+        alpaca_recent = load_prices_alpaca([a, b], recent_start, today,
+                                            os.environ["ALPACA_API_KEY"], os.environ["ALPACA_SECRET_KEY"])
+        if not alpaca_recent.empty:
+            full_prices = alpaca_recent.combine_first(full_prices).sort_index()
+    except Exception as e:
+        print(f"WARNING: Alpaca price fetch failed for {label} ({e}), falling back to yfinance-only")
     result = run_kalman_filter(label, full_prices[a], full_prices[b], delta, obs_cov)
     denoised = rolling_fft_denoise(result.spread, percentile=cfg["p"], window=60)
     z = rolling_zscore(denoised, 60)
@@ -203,6 +219,86 @@ def place_entry(client: TradingClient, sig: dict) -> dict:
                 equity_at_entry=round(equity, 2), equity_fraction=round(fraction, 3), units=units)
 
 
+STATUS_MD_PATH = os.path.join(REPORTS, "..", "LIVE_STATUS.md")
+EVAL_WINDOW_DAYS = 90  # PAPER_TRADING_PROTOCOL.md: minimum 3 months before any go/no-go
+
+
+def generate_live_status_md(client: TradingClient, state: dict, run_date: str) -> str:
+    """Deliberately shows *that the system is running*, not a performance
+    claim -- no headline P&L, no Sharpe, no "returns" framing. At this
+    trade-count and time-in-market, any such number would be noise dressed
+    up as a result, which is exactly what this project's own methodology
+    argues against. See PAPER_TRADING_PROTOCOL.md for the pre-committed
+    3-month minimum before results are meaningful at all.
+    """
+    acct = client.get_account()
+    positions = {p.symbol: p for p in client.get_all_positions()}
+
+    days_running = (pd.Timestamp(run_date) - pd.Timestamp(PAPER_TRADING_START)).days
+    days_remaining = max(EVAL_WINDOW_DAYS - days_running, 0)
+
+    lines = [
+        "# Live Paper-Trading Status",
+        "",
+        f"_Auto-updated by `scripts/alpaca_paper_trade.py` -- last run {run_date}._",
+        "",
+        "**This is a status page, not a results page.** Per "
+        "[PAPER_TRADING_PROTOCOL.md](PAPER_TRADING_PROTOCOL.md), a minimum "
+        "3-month evaluation window was pre-committed before any Sharpe/P&L "
+        "number here would be statistically meaningful -- showing one "
+        "earlier would just be noise dressed up as a result. This page "
+        "shows the system is genuinely running against a live Alpaca paper "
+        "account, nothing more, until that window closes.",
+        "",
+        f"- **Days into evaluation window**: {days_running} / {EVAL_WINDOW_DAYS} "
+        f"({days_remaining} remaining before a go/no-go is even eligible)",
+        f"- **Account equity**: ${float(acct.equity):,.2f}",
+        "",
+        "## Open positions",
+        "",
+    ]
+
+    if not positions:
+        lines.append("_None currently open._")
+    else:
+        lines.append("| symbol | side | qty | market value |")
+        lines.append("|---|---|---|---|")
+        for sym, p in positions.items():
+            lines.append(f"| {sym} | {p.side.value} | {p.qty} | ${float(p.market_value):,.2f} |")
+
+    lines += ["", "## Per-pair status", "", "| pair | position | z_entry | z_exit |", "|---|---|---|---|"]
+    for label, cfg in CONFIGS.items():
+        pos = state.get(label, {}).get("position", 0)
+        pos_str = {0: "flat", 1: "long spread", -1: "short spread"}[pos]
+        lines.append(f"| {cfg['label']} | {pos_str} | {cfg['z_entry']} | {cfg['z_exit']} |")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def commit_and_push_status(status_md: str) -> None:
+    """Best-effort: writes LIVE_STATUS.md and pushes it. Failures here
+    (network down, git conflict, no remote configured) are logged but never
+    block the trading run itself -- placing/managing real paper orders is
+    the important part of this script, not the git housekeeping.
+    """
+    try:
+        with open(STATUS_MD_PATH, "w") as f:
+            f.write(status_md)
+        repo_dir = os.path.join(os.path.dirname(__file__), "..")
+        subprocess.run(["git", "add", "LIVE_STATUS.md"], cwd=repo_dir, check=True, capture_output=True)
+        diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo_dir)
+        if diff.returncode == 0:
+            print("LIVE_STATUS.md unchanged, nothing to commit")
+            return
+        subprocess.run(["git", "commit", "-m", "Update live paper-trading status [automated]"],
+                        cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(["git", "push"], cwd=repo_dir, check=True, capture_output=True)
+        print("LIVE_STATUS.md committed and pushed")
+    except Exception as e:
+        print(f"WARNING: failed to commit/push LIVE_STATUS.md ({e}) -- trading run itself is unaffected")
+
+
 def place_exit(client: TradingClient, sig: dict) -> dict:
     a, b = sig["symbol_a"], sig["symbol_b"]
     results = {}
@@ -293,6 +389,9 @@ def main():
 
     save_state(state)
     print(f"\nwrote {STATE_PATH}")
+
+    status_md = generate_live_status_md(client, state, today_iso)
+    commit_and_push_status(status_md)
 
 
 if __name__ == "__main__":
