@@ -5,14 +5,14 @@ _Auto-updated by `scripts/alpaca_paper_trade.py` -- last run 2026-09-03._
 **This is a status page, not a results page.** Per [PAPER_TRADING_PROTOCOL.md](PAPER_TRADING_PROTOCOL.md), a minimum 3-month evaluation window was pre-committed before any Sharpe/P&L number here would be statistically meaningful -- showing one earlier would just be noise dressed up as a result. This page shows the system is genuinely running against a live Alpaca paper account, nothing more, until that window closes.
 
 - **Days into evaluation window**: 12 / 90 (78 remaining before a go/no-go is even eligible)
-- **Account equity**: $99,964.91
+- **Account equity**: $99,992.54
 
 ## Open positions
 
 | symbol | side | qty | market value |
 |---|---|---|---|
-| KO | long | 82.328068996 | $7,305.79 |
-| PEP | short | -51 | $-7,148.16 |
+| KO | long | 82.328068996 | $7,316.08 |
+| PEP | short | -51 | $-7,130.82 |
 
 ## Per-pair status
 
