@@ -1,24 +1,24 @@
 # Live Paper-Trading Status
 
-_Auto-updated by `scripts/alpaca_paper_trade.py` -- last run 2026-09-14._
+_Auto-updated by `scripts/alpaca_paper_trade.py` -- last run 2026-09-15._
 
 **This is a status page, not a results page.** Per [PAPER_TRADING_PROTOCOL.md](PAPER_TRADING_PROTOCOL.md), a minimum 3-month evaluation window was pre-committed before any Sharpe/P&L number here would be statistically meaningful -- showing one earlier would just be noise dressed up as a result. This page shows the system is genuinely running against a live Alpaca paper account, nothing more, until that window closes.
 
-- **Days into evaluation window**: 23 / 90 (67 remaining before a go/no-go is even eligible)
-- **Account equity**: $99,912.53
+- **Days into evaluation window**: 24 / 90 (66 remaining before a go/no-go is even eligible)
+- **Account equity**: $99,801.46
 
 ## Open positions
 
 | symbol | side | qty | market value |
 |---|---|---|---|
-| CSX | short | -123 | $-5,982.10 |
-| JBLU | long | 1225.636363637 | $5,347.45 |
-| KO | long | 82.328068996 | $7,362.60 |
-| LUV | short | -152 | $-5,949.28 |
-| MA | long | 9.413934786 | $5,415.46 |
-| PEP | short | -51 | $-7,017.60 |
-| UNP | long | 20.847591333 | $5,941.98 |
-| V | short | -14 | $-5,243.45 |
+| CSX | short | -123 | $-5,999.94 |
+| JBLU | long | 1225.636363637 | $5,313.13 |
+| KO | long | 82.328068996 | $7,264.63 |
+| LUV | short | -152 | $-5,988.80 |
+| MA | long | 9.413934786 | $5,376.86 |
+| PEP | short | -51 | $-6,883.73 |
+| UNP | long | 20.847591333 | $5,927.91 |
+| V | short | -14 | $-5,246.08 |
 
 ## Per-pair status
 
