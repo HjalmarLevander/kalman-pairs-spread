@@ -6,8 +6,24 @@ the frequency domain, and trade the denoised signal's deviation from its
 mean — with every free parameter (pair choice, denoising threshold,
 entry/exit rule, position size) empirically justified rather than guessed.
 
+# Hypothesis / Intuition driving this project
+
+If you take two cointegrated assets, we can assume they are mean reverting, 
+or at least mean reverting w.r.t scaling. If we can break down the mean
+reversion into wave patterns that can potentially be predictive. So we classify
+our reversion by using a Kalman filter which maps out the spread between the two 
+assets traded. Then on top of our filter, we perform a Fourier Transform. Further, 
+to de-noise even more we only use the n-largest/most dominant waves. 
+
+Now given cointegration, we can observe the magnitude of the spread, understand its
+z-score compared to standard spread, and argue whether the gap will close or not.
+
+If the z-score is unusually high (i.e. 1 - 2 sigma event) and the FFT suggest that it 
+will close soon, we short the spread and vice versa.
+
 Full methodology: [SPEC.md](SPEC.md). Full decision log, including every
 dead end and rejected idea: [PROGRESS.md](PROGRESS.md).
+
 
 ## Status: paper trading, in progress (started 2026-08-22)
 
