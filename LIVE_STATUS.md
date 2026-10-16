@@ -1,26 +1,28 @@
 # Live Paper-Trading Status
 
-_Auto-updated by `scripts/alpaca_paper_trade.py` -- last run 2026-10-15._
+_Auto-updated by `scripts/alpaca_paper_trade.py` -- last run 2026-10-16._
 
 **This is a status page, not a results page.** Per [PAPER_TRADING_PROTOCOL.md](PAPER_TRADING_PROTOCOL.md), a minimum 3-month evaluation window was pre-committed before any Sharpe/P&L number here would be statistically meaningful -- showing one earlier would just be noise dressed up as a result. This page shows the system is genuinely running against a live Alpaca paper account, nothing more, until that window closes.
 
-- **Days into evaluation window**: 54 / 90 (36 remaining before a go/no-go is even eligible)
-- **Account equity**: $98,353.41
+- **Days into evaluation window**: 55 / 90 (35 remaining before a go/no-go is even eligible)
+- **Account equity**: $98,080.92
 
 ## Open positions
 
 | symbol | side | qty | market value |
 |---|---|---|---|
-| JBLU | long | 1225.636363637 | $3,811.73 |
-| KO | short | -74 | $-6,855.35 |
-| LUV | short | -152 | $-6,089.12 |
-| PEP | long | 50.496842105 | $6,595.90 |
+| JBLU | long | 1225.636363637 | $3,781.09 |
+| KO | short | -74 | $-6,901.98 |
+| LUV | short | -152 | $-6,235.80 |
+| MA | short | -10 | $-6,220.70 |
+| PEP | long | 50.496842105 | $6,551.71 |
+| V | long | 16.162149474 | $6,537.59 |
 
 ## Per-pair status
 
 | pair | position | z_entry | z_exit | realized P&L | unrealized P&L |
 |---|---|---|---|---|---|
-| V / MA | flat | 1.0 | 0.5 | $9.62 | $0.00 |
-| KO / PEP | long spread | 1.0 | 0.25 | $241.84 | $9.89 |
+| V / MA | short spread | 1.0 | 0.5 | $9.62 | $-5.10 |
+| KO / PEP | long spread | 1.0 | 0.25 | $241.84 | $-80.92 |
 | UNP / CSX | flat | 1.5 | 0.5 | $123.37 | $0.00 |
-| LUV / JBLU | long spread | 1.5 | 0.5 | $0.00 | $-1,860.29 |
+| LUV / JBLU | long spread | 1.5 | 0.5 | $0.00 | $-2,037.61 |
